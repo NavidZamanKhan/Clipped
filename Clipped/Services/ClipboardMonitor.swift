@@ -69,6 +69,18 @@ class ClipboardMonitor {
         timer = nil
     }
 
+    /// Same as `stop()`, but callable from a non-isolated context such
+    /// as an object's `deinit`. Used so `AppState` can guarantee the
+    /// timer doesn't keep firing after the app process is torn down.
+    nonisolated func invalidateFromAnyThread() {
+        // The timer is mutated on the main run loop in normal operation,
+        // but `invalidate()` is documented as thread-safe, so calling it
+        // during deinit from any thread is safe.
+        DispatchQueue.main.async { [weak self] in
+            self?.stop()
+        }
+    }
+
     // MARK: - Private
 
     /// Compares the current `changeCount` to our stored value.
