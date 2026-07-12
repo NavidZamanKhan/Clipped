@@ -1,6 +1,6 @@
 import AppKit
 
-/// Monitors the macOS clipboard for new plain-text content.
+/// Monitors the macOS clipboard for new plain-text or image content.
 ///
 /// macOS does not provide a notification when the clipboard changes.
 /// Instead, `NSPasteboard` exposes a `changeCount` integer that increments
@@ -8,7 +8,7 @@ import AppKit
 /// this is the standard approach used by native macOS clipboard utilities.
 ///
 /// This is a `class` (not a `struct`) because it holds mutable state:
-/// the running `Timer`, the last-seen `changeCount`, and the callback.
+/// the running `Timer`, the last-seen `changeCount`, and the callbacks.
 /// In Flutter terms, this is like a controller that you `dispose()` of
 /// when the widget unmounts — here, you call `stop()`.
 class ClipboardMonitor {
@@ -24,14 +24,26 @@ class ClipboardMonitor {
     /// Called when new non-empty plain text is detected on the clipboard.
     private var onNewText: ((String) -> Void)?
 
+    /// Called when a new image is detected on the clipboard.
+    private var onNewImage: ((NSImage) -> Void)?
+
     /// Begins polling the clipboard at a 1-second interval.
     ///
-    /// - Parameter onNewText: A closure called with the new text each time
-    ///   a clipboard change is detected. This runs on the main thread
-    ///   because `Timer.scheduledTimer` fires on the current run loop
-    ///   (which is the main run loop when called from SwiftUI).
-    func start(onNewText: @escaping (String) -> Void) {
+    /// Each clipboard change is treated as mutually exclusive:
+    /// text is checked first. If non-empty text is found, the image
+    /// check is skipped. This matches user expectations when an app
+    /// puts both text and image representations on the pasteboard.
+    ///
+    /// - Parameters:
+    ///   - onNewText: Called with the new text when plain text is detected.
+    ///   - onNewImage: Called with the new image when an image is detected
+    ///     and no plain text was found.
+    func start(
+        onNewText: @escaping (String) -> Void,
+        onNewImage: @escaping (NSImage) -> Void
+    ) {
         self.onNewText = onNewText
+        self.onNewImage = onNewImage
 
         // Snapshot the current changeCount so we don't immediately
         // re-report whatever is already on the clipboard at launch.
@@ -60,7 +72,11 @@ class ClipboardMonitor {
     // MARK: - Private
 
     /// Compares the current `changeCount` to our stored value.
-    /// If different, reads the clipboard and calls the callback.
+    /// If different, reads the clipboard and calls the appropriate callback.
+    ///
+    /// Text is checked first. Only if no non-empty text is found do we
+    /// check for an image. This ensures a single clipboard event produces
+    /// at most one history entry.
     private func checkForChanges() {
         let pasteboard = NSPasteboard.general
         let currentCount = pasteboard.changeCount
@@ -71,14 +87,15 @@ class ClipboardMonitor {
         // Update our snapshot so we don't process this change again.
         lastChangeCount = currentCount
 
-        // Read plain text from the clipboard. `string(forType: .string)`
-        // returns nil if the clipboard doesn't contain plain text (e.g.,
-        // the user copied an image).
-        guard let text = pasteboard.string(forType: .string),
-              !text.isEmpty else {
+        // Priority 1: plain text.
+        if let text = pasteboard.string(forType: .string), !text.isEmpty {
+            onNewText?(text)
             return
         }
 
-        onNewText?(text)
+        // Priority 2: image (PNG preferred, TIFF fallback).
+        if let image = ClipboardService.currentImage() {
+            onNewImage?(image)
+        }
     }
 }
