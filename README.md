@@ -4,7 +4,7 @@ A fast, lightweight, native clipboard manager for macOS.
 
 ## Introduction
 
-Clipped is a native macOS utility built primarily as a personal side project and learning experience. Its philosophy is simple: be fast, lightweight, local-only, and private. It features no accounts, cloud sync, analytics, AI, subscriptions, Electron, Flutter, or third-party frameworks.
+Clipped is a native macOS utility born out of a personal need for a simple, lightweight, and fast clipboard manager. Built as a side project and learning experience, its philosophy is simple: be fast, lightweight, local-only, and private. It features no accounts, cloud sync, analytics, AI, subscriptions, Electron, Flutter, or third-party frameworks.
 
 ## Current Features
 
