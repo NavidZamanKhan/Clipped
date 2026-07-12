@@ -1,25 +1,74 @@
 # Clipped
 
-A lightweight, native macOS clipboard manager built with Swift and SwiftUI.
+A fast, lightweight, native clipboard manager for macOS.
 
-## Features
+## Introduction
 
-- **Blazing Fast & Lightweight**: Zero bloated dependencies, built entirely using native macOS frameworks (SwiftUI & AppKit).
-- **Searchable Clipboard**: Easily search through your copy history.
-- **Privacy First**: No cloud synchronization, no tracking, and no external APIs. All data stays local to your Mac.
+Clipped is a native macOS utility built primarily as a personal side project and learning experience. Its philosophy is simple: be fast, lightweight, local-only, and private. It features no accounts, cloud sync, analytics, AI, subscriptions, Electron, Flutter, or third-party frameworks.
 
-## Planned Features
+## Current Features
 
-- Menu bar app integration with global shortcut support.
-- Launch at login configuration.
-- Pinned clipboard items.
+- Monitors the macOS clipboard while Clipped is running.
+- Saves plain-text clipboard history locally with SQLite.
+- Saves copied raster images (such as screenshots) as local PNG files, with metadata in SQLite.
+- Restores history after Clipped is restarted.
+- Shows text and image history in one newest-first list.
+- Existing history is stored locally inside the app’s Application Support sandbox.
+- The app is currently a normal development-window app, not yet a finished menu-bar utility.
 
-## Build Requirements
+## Privacy and Data Storage
 
-- Xcode 15+
-- macOS 14+
+All clipboard data is local-only and private. History is stored locally within the app's Application Support sandbox.
 
-Open `Clipped.xcodeproj` in Xcode and build.
+**Note:** Clipboard history may contain sensitive material such as passwords, API keys, OTPs, or private screenshots. It is stored locally, but currently should be treated as unencrypted local history. 
 
----
-Built with Swift & SwiftUI.
+## History Limits
+
+| Media Type | Limit |
+| --- | --- |
+| Text | 100 entries |
+| Images | 20 entries |
+
+## Current Limitations
+
+- **Missed Copies:** Clipped cannot recover multiple things copied while it was closed; macOS only exposes the current clipboard item at launch.
+- **Unencrypted Storage:** Clipboard history is stored locally, but it is currently unencrypted.
+
+## Getting Started
+
+To build from source:
+
+### Requirements
+- macOS 26.5+ (as configured in the project)
+- Xcode (Swift 5.0)
+
+### Instructions
+1. Open the `Clipped.xcodeproj` in Xcode.
+2. Build and run with `⌘R`.
+
+## Technology
+
+- Swift & SwiftUI
+- SQLite3
+- Native macOS frameworks
+
+## Roadmap (Planned — Not Implemented)
+
+The following features are planned for future development but are not currently implemented:
+
+- Menu-bar mode
+- Global shortcut support
+- Automatic paste functionality
+- Launch at login
+- Settings interface
+- Compiled releases
+- Homebrew distribution
+- App Store distribution
+
+## Contributing
+
+Issues, feedback, and pull requests are welcome! Feel free to open an issue to discuss bugs or suggestions.
+
+## License
+
+No license has been selected for this repository yet.
