@@ -93,11 +93,10 @@ struct HomeView: View {
         .padding()
         // Sets the macOS window title in the title bar.
         .navigationTitle("Clipped")
-        // No `onAppear` / `onDisappear` lifecycle hooks are needed here:
-        // `AppState.start()` is invoked from the App scene's `.task`,
-        // and the clipboard monitor must keep running after this view
-        // disappears. Putting `monitor.stop()` here would re-introduce
-        // the bug where closing the window stops capture.
+        // No `onAppear` / `onDisappear` lifecycle hooks are needed here.
+        // The clipboard monitor is owned by `AppDelegate` and runs
+        // independently of any window. Closing the window does not
+        // affect monitoring.
     }
 }
 

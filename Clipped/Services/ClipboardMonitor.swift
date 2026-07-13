@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Monitors the macOS clipboard for new plain-text or image content.
 ///
@@ -12,6 +13,11 @@ import AppKit
 /// In Flutter terms, this is like a controller that you `dispose()` of
 /// when the widget unmounts — here, you call `stop()`.
 class ClipboardMonitor {
+
+    private static let logger = Logger(
+        subsystem: "com.NavidZamanKhan.Clipped",
+        category: "ClipboardMonitor"
+    )
 
     /// The timer that periodically checks for clipboard changes.
     /// `Timer` is Swift's equivalent of Dart's `Timer.periodic`.
@@ -58,27 +64,18 @@ class ClipboardMonitor {
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.checkForChanges()
         }
+
+        Self.logger.info("Clipboard monitoring started")
     }
 
-    /// Stops the timer. Call this when the view disappears or the app quits.
+    /// Stops the timer. Called when the application quits.
     ///
     /// `invalidate()` permanently stops the timer and removes it from the
     /// run loop. Setting it to `nil` releases the reference.
     func stop() {
         timer?.invalidate()
         timer = nil
-    }
-
-    /// Same as `stop()`, but callable from a non-isolated context such
-    /// as an object's `deinit`. Used so `AppState` can guarantee the
-    /// timer doesn't keep firing after the app process is torn down.
-    nonisolated func invalidateFromAnyThread() {
-        // The timer is mutated on the main run loop in normal operation,
-        // but `invalidate()` is documented as thread-safe, so calling it
-        // during deinit from any thread is safe.
-        DispatchQueue.main.async { [weak self] in
-            self?.stop()
-        }
+        Self.logger.info("Clipboard monitoring stopped")
     }
 
     // MARK: - Private

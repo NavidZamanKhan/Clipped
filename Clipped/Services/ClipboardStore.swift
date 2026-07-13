@@ -1,5 +1,6 @@
 import SQLite3
 import Foundation
+import os
 
 /// Manages the SQLite database for clipboard history.
 ///
@@ -14,6 +15,11 @@ import Foundation
 /// SQLite operations on ≤120 small rows are sub-millisecond, so there's
 /// no need for background threads at this scale.
 class ClipboardStore {
+
+    private static let logger = Logger(
+        subsystem: "com.NavidZamanKhan.Clipped",
+        category: "ClipboardStore"
+    )
 
     /// The maximum number of text clipboard items to retain.
     private let maxTextItems = 100
@@ -43,7 +49,7 @@ class ClipboardStore {
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first else {
-            print("ClipboardStore: Could not locate Application Support directory.")
+            Self.logger.error("Could not locate Application Support directory")
             return
         }
 
@@ -54,7 +60,7 @@ class ClipboardStore {
         do {
             try fileManager.createDirectory(at: clippedDir, withIntermediateDirectories: true)
         } catch {
-            print("ClipboardStore: Failed to create directory: \(error)")
+            Self.logger.error("Failed to create directory: \(error)")
             return
         }
 
@@ -63,12 +69,24 @@ class ClipboardStore {
         // `sqlite3_open` creates the file if it doesn't exist.
         // It returns SQLITE_OK (0) on success.
         if sqlite3_open(dbPath, &db) != SQLITE_OK {
-            print("ClipboardStore: Failed to open database at \(dbPath).")
+            Self.logger.error("Failed to open database at \(dbPath)")
             return
         }
 
         createTableIfNeeded()
         migrateIfNeeded()
+        Self.logger.info("Database opened at \(dbPath)")
+    }
+
+    /// Closes the database connection explicitly.
+    ///
+    /// Called by `AppDelegate.applicationWillTerminate` to ensure a clean
+    /// shutdown. Safe to call multiple times — subsequent calls are no-ops.
+    func close() {
+        guard let db else { return }
+        sqlite3_close(db)
+        self.db = nil
+        Self.logger.info("Database connection closed")
     }
 
     /// Closes the database connection when this object is deallocated.
@@ -76,8 +94,13 @@ class ClipboardStore {
     /// `deinit` is Swift's destructor — it runs automatically when the
     /// last reference to this object is released. Similar to calling
     /// `dispose()` on a Flutter controller, but you don't call it manually.
+    ///
+    /// Acts as a safety net if `close()` was not called explicitly.
+    /// After `close()`, `db` is nil, so this is a no-op.
     deinit {
-        sqlite3_close(db)
+        if let db {
+            sqlite3_close(db)
+        }
     }
 
     // MARK: - Public API
@@ -98,7 +121,7 @@ class ClipboardStore {
         // statement — like a pre-parsed query the database can execute
         // efficiently.
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            print("ClipboardStore: Failed to prepare loadAll statement.")
+            Self.logger.error("Failed to prepare loadAll statement")
             return []
         }
 
@@ -155,7 +178,7 @@ class ClipboardStore {
         var statement: OpaquePointer?
 
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            print("ClipboardStore: Failed to prepare insert statement.")
+            Self.logger.error("Failed to prepare insert statement")
             return nil
         }
 
@@ -174,7 +197,7 @@ class ClipboardStore {
         sqlite3_bind_double(statement, 2, now.timeIntervalSince1970)
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
-            print("ClipboardStore: Failed to insert text item.")
+            Self.logger.error("Failed to insert text item")
             return nil
         }
 
@@ -200,7 +223,7 @@ class ClipboardStore {
         var statement: OpaquePointer?
 
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            print("ClipboardStore: Failed to prepare insertImage statement.")
+            Self.logger.error("Failed to prepare insertImage statement")
             return nil
         }
 
@@ -213,7 +236,7 @@ class ClipboardStore {
         sqlite3_bind_text(statement, 2, path, -1, transient)
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
-            print("ClipboardStore: Failed to insert image item.")
+            Self.logger.error("Failed to insert image item")
             return nil
         }
 
@@ -246,7 +269,7 @@ class ClipboardStore {
         var statement: OpaquePointer?
 
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            print("ClipboardStore: Failed to prepare trimText statement.")
+            Self.logger.error("Failed to prepare trimText statement")
             return
         }
 
@@ -255,7 +278,7 @@ class ClipboardStore {
         sqlite3_bind_int(statement, 1, Int32(maxTextItems))
 
         if sqlite3_step(statement) != SQLITE_DONE {
-            print("ClipboardStore: Failed to trim text items.")
+            Self.logger.error("Failed to trim text items")
         }
     }
 
@@ -280,7 +303,7 @@ class ClipboardStore {
         var selectStmt: OpaquePointer?
 
         guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
-            print("ClipboardStore: Failed to prepare trimImages select statement.")
+            Self.logger.error("Failed to prepare trimImages select statement")
             return []
         }
 
@@ -316,7 +339,7 @@ class ClipboardStore {
         var deleteStmt: OpaquePointer?
 
         guard sqlite3_prepare_v2(db, deleteSQL, -1, &deleteStmt, nil) == SQLITE_OK else {
-            print("ClipboardStore: Failed to prepare trimImages delete statement.")
+            Self.logger.error("Failed to prepare trimImages delete statement")
             return []
         }
 
@@ -325,7 +348,7 @@ class ClipboardStore {
         sqlite3_bind_int(deleteStmt, 1, Int32(maxImageItems))
 
         if sqlite3_step(deleteStmt) != SQLITE_DONE {
-            print("ClipboardStore: Failed to trim image items.")
+            Self.logger.error("Failed to trim image items")
             return []
         }
 
@@ -347,7 +370,7 @@ class ClipboardStore {
         // `sqlite3_exec` is a convenience for one-shot statements that
         // don't return data. It compiles, runs, and finalizes in one call.
         if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
-            print("ClipboardStore: Failed to create table.")
+            Self.logger.error("Failed to create table")
         }
     }
 
@@ -369,7 +392,7 @@ class ClipboardStore {
                 ADD COLUMN content_type TEXT NOT NULL DEFAULT 'text';
                 """
             if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
-                print("ClipboardStore: Failed to add content_type column.")
+                Self.logger.error("Failed to add content_type column")
             }
         }
 
@@ -379,7 +402,7 @@ class ClipboardStore {
                 ADD COLUMN image_path TEXT;
                 """
             if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
-                print("ClipboardStore: Failed to add image_path column.")
+                Self.logger.error("Failed to add image_path column")
             }
         }
     }

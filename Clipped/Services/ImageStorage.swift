@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 /// Handles reading and writing PNG image files for clipboard history.
 ///
@@ -8,6 +9,11 @@ import Foundation
 ///
 /// This struct has no instance state — all methods are static helpers.
 struct ImageStorage {
+
+    private static let logger = Logger(
+        subsystem: "com.NavidZamanKhan.Clipped",
+        category: "ImageStorage"
+    )
 
     /// Returns the URL to the Images directory, creating it if needed.
     ///
@@ -31,7 +37,7 @@ struct ImageStorage {
             )
             return imagesDir
         } catch {
-            print("ImageStorage: Failed to create Images directory: \(error)")
+            Self.logger.error("Failed to create Images directory: \(error)")
             return nil
         }
     }
@@ -51,7 +57,7 @@ struct ImageStorage {
         guard let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:]) else {
-            print("ImageStorage: Failed to convert image to PNG data.")
+            Self.logger.error("Failed to convert image to PNG data")
             return nil
         }
 
@@ -64,7 +70,7 @@ struct ImageStorage {
             try pngData.write(to: fileURL, options: .atomic)
             return fileURL.path
         } catch {
-            print("ImageStorage: Failed to write PNG file: \(error)")
+            Self.logger.error("Failed to write PNG file: \(error)")
             return nil
         }
     }
@@ -78,7 +84,7 @@ struct ImageStorage {
             try FileManager.default.removeItem(atPath: path)
         } catch {
             // File may already have been deleted; that's fine.
-            print("ImageStorage: Could not delete \(path): \(error)")
+            Self.logger.warning("Could not delete \(path): \(error)")
         }
     }
 }
