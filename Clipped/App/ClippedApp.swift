@@ -5,14 +5,22 @@ import AppKit
 ///
 /// `@main` marks this struct as the app's launch point.
 ///
-/// The `App` declares a single `WindowGroup` scene for the clipboard
-/// history UI. All long-lived services (clipboard monitor, SQLite,
-/// menu bar) are owned by `AppDelegate`, not by the SwiftUI layer.
+/// # Window management
 ///
-/// The menu bar icon is managed by `MenuBarManager` (an AppKit
-/// `NSStatusItem`), created in `AppDelegate.applicationDidFinishLaunching`.
-/// This keeps window and menu bar management in the delegate layer
-/// where they can be coordinated cleanly.
+/// This App struct deliberately uses a `Settings` scene instead of a
+/// `WindowGroup`. A `WindowGroup` would cause SwiftUI to create and
+/// manage its own `NSWindow`, which conflicts with the permanent
+/// `NSPanel` that `WindowManager` owns directly.
+///
+/// The `Settings` scene produces no visible window on launch
+/// (it only activates via Preferences menu), giving AppKit full
+/// authority over the application's window lifecycle.
+///
+/// # Service ownership
+///
+/// All long-lived services (clipboard monitor, SQLite, menu bar, panel)
+/// are owned by `AppDelegate`, not by the SwiftUI scene layer. The
+/// delegate creates and wires everything in `applicationDidFinishLaunching`.
 @main
 struct ClippedApp: App {
 
@@ -22,26 +30,11 @@ struct ClippedApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup(id: "main") {
-            HomeView()
-                .environmentObject(appDelegate.appState)
-        }
-        // Sets the default window size when the app first launches.
-        // The user can still resize freely after that.
-        .defaultSize(width: 420, height: 600)
-        .commands {
-            // Prevent ⌘N from creating duplicate windows. Clipped
-            // should only ever have one main window.
-            CommandGroup(replacing: .newItem) {}
-
-            // Replace the default Quit with an explicit ⌘Q handler
-            // so the shortcut works when the window is focused.
-            CommandGroup(replacing: .appTermination) {
-                Button("Quit Clipped") {
-                    NSApp.terminate(nil)
-                }
-                .keyboardShortcut("q")
-            }
+        // A Settings scene with no content. This satisfies the SwiftUI
+        // App protocol requirement of at least one scene, without
+        // producing a window that would conflict with our NSPanel.
+        Settings {
+            EmptyView()
         }
     }
 }

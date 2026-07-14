@@ -64,10 +64,6 @@ struct HomeView: View {
         .padding()
         // Sets the macOS window title in the title bar.
         .navigationTitle("Clipped")
-        .onAppear {
-            // Auto-select the newest item when the window appears.
-            appState.selectedItemID = appState.items.first?.id
-        }
         .onKeyPress(.return) {
             pasteSelectedItem()
             return .handled

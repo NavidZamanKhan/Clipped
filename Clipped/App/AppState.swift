@@ -17,6 +17,17 @@ final class AppState: ObservableObject {
 
     /// The currently selected item's ID in the list. Drives native
     /// `List(selection:)` highlighting and keyboard navigation.
-    /// Auto-set to the newest item when the window appears.
     @Published var selectedItemID: ClipboardItem.ID?
+
+    // MARK: - Selection
+
+    /// Selects the newest clipboard item.
+    ///
+    /// Called by `WindowManager.showPanel()` immediately before the panel
+    /// becomes visible, ensuring the correct item is highlighted on every
+    /// show — deterministically and synchronously, without relying on
+    /// SwiftUI's `onAppear` lifecycle callback.
+    func selectNewest() {
+        selectedItemID = items.first?.id
+    }
 }

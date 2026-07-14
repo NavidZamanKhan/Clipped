@@ -66,10 +66,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
 
-        // 4. Create the menu bar icon. "Show Clipped" is routed through
+        // 4. Create the permanent NSPanel — exactly once, before the menu
+        //    bar manager is set up so that showPanel() is safe to call
+        //    from the very first user interaction.
+        windowManager.createPanel(appState: appState)
+
+        // 5. Create the menu bar icon. "Show Clipped" is routed through
         //    WindowManager; the menu bar manager never touches windows.
         menuBarManager = MenuBarManager(onShowClipped: { [weak self] in
-            self?.windowManager.showMainWindow()
+            self?.windowManager.showPanel()
         })
 
         Self.logger.info("All services started")
@@ -218,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Self.logger.info("Restored clipboard item id=\(item.id)")
 
         // 4. Hide Clipped and let macOS return focus to the previous app.
-        windowManager.hideMainWindow()
+        windowManager.hidePanel()
 
         // 5. Simulate ⌘V after a brief yield so macOS finishes the
         //    focus transition. DispatchQueue.main.async runs the block
@@ -230,7 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Hides Clipped without pasting. Used when the user presses Esc.
     func hideWindow() {
-        windowManager.hideMainWindow()
+        windowManager.hidePanel()
     }
 
     // MARK: - ⌘V Simulation
