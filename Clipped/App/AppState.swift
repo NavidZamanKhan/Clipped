@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 /// UI-observable state consumed by SwiftUI views.
 ///
