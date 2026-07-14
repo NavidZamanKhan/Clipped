@@ -65,6 +65,7 @@ struct HomeView: View {
         // Sets the macOS window title in the title bar.
         .navigationTitle("Clipped")
         .onKeyPress(.return) {
+            print("[TRACE] HomeView: .onKeyPress(.return) fired")
             pasteSelectedItem()
             return .handled
         }

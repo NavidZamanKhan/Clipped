@@ -186,9 +186,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 6. After a brief async yield (to let macOS switch focus),
     ///    simulate ⌘V via CGEvent.
     func pasteSelectedItem() {
+        print("[TRACE] AppDelegate: pasteSelectedItem() entered")
         guard let selectedID = appState.selectedItemID,
               let index = appState.items.firstIndex(where: { $0.id == selectedID })
         else {
+            print("[TRACE] AppDelegate: pasteSelectedItem() — no item selected, returning")
             Self.logger.warning("Paste requested but no item is selected")
             return
         }
@@ -223,6 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Self.logger.info("Restored clipboard item id=\(item.id)")
 
         // 4. Hide Clipped and let macOS return focus to the previous app.
+        print("[TRACE] AppDelegate: about to call windowManager.hidePanel()")
         windowManager.hidePanel()
 
         // 5. Simulate ⌘V after a brief yield so macOS finishes the
@@ -252,6 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The `0x09` keycode is the virtual key code for `V` on all macOS
     /// keyboard layouts (it's positional, not character-based).
     private static func simulatePaste() {
+        print("[TRACE] AppDelegate: simulatePaste() entered")
         let source = CGEventSource(stateID: .combinedSessionState)
 
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),

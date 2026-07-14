@@ -51,6 +51,7 @@ struct ClipboardService {
     /// Writes plain text to the system clipboard, replacing its current
     /// contents. Used when the user restores a historical text clip.
     static func restoreText(_ text: String) {
+        print("[TRACE] ClipboardService: restoreText() entered")
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
@@ -62,6 +63,7 @@ struct ClipboardService {
     /// The image is placed as both PNG and TIFF data so that the widest
     /// range of receiving applications can paste it.
     static func restoreImage(fromPath path: String) {
+        print("[TRACE] ClipboardService: restoreImage() entered")
         guard let image = NSImage(contentsOfFile: path),
               let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),

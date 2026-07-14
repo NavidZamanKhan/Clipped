@@ -232,6 +232,7 @@ final class WindowManager {
     /// reactivates the application that was active before Clipped appeared.
     /// This is the same mechanism used by Alfred and Raycast.
     func hidePanel() {
+        print("[TRACE] WindowManager: hidePanel() entered")
         panel?.orderOut(nil)
         NSApp.hide(nil)
         Self.logger.debug("Panel hidden")
