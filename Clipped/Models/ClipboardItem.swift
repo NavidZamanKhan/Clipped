@@ -16,7 +16,7 @@ enum ContentType: String {
 /// `Identifiable` conformance gives each item a unique `id` property.
 /// SwiftUI's `ForEach` uses this to track which row is which, just like
 /// passing a `key` to widgets in a Flutter `ListView.builder`.
-struct ClipboardItem: Identifiable {
+struct ClipboardItem: Identifiable, Hashable {
 
     /// The SQLite `AUTOINCREMENT` primary key.
     let id: Int64
@@ -33,5 +33,7 @@ struct ClipboardItem: Identifiable {
     let imagePath: String?
 
     /// When this text or image was copied (or first seen by Clipped).
-    let copiedAt: Date
+    /// Mutable so that the timestamp can be updated when the user
+    /// restores a historical item (which moves it to the top).
+    var copiedAt: Date
 }

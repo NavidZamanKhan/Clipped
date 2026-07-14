@@ -30,4 +30,14 @@ final class WindowManager {
             Self.logger.warning("No main window found to restore")
         }
     }
+
+    /// Hides the main window and deactivates Clipped, allowing the
+    /// previously-focused application to regain focus.
+    func hideMainWindow() {
+        if let window = NSApp.windows.first(where: { $0.canBecomeMain }) {
+            window.orderOut(nil)
+            Self.logger.debug("Main window hidden")
+        }
+        NSApp.hide(nil)
+    }
 }

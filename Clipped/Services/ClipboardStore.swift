@@ -250,6 +250,39 @@ class ClipboardStore {
         )
     }
 
+    /// Updates the `copied_at` timestamp of an existing entry to the
+    /// current time. Used when the user restores a historical clip —
+    /// the restored item moves to the top of the list.
+    ///
+    /// Returns the new `Date` on success so the caller can update the
+    /// in-memory model without re-querying. Returns `nil` on failure.
+    func updateTimestamp(id: Int64) -> Date? {
+        let sql = """
+            UPDATE clipboard_items
+            SET copied_at = ?
+            WHERE id = ?;
+            """
+        var statement: OpaquePointer?
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            Self.logger.error("Failed to prepare updateTimestamp statement")
+            return nil
+        }
+
+        defer { sqlite3_finalize(statement) }
+
+        let now = Date()
+        sqlite3_bind_double(statement, 1, now.timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 2, id)
+
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            Self.logger.error("Failed to update timestamp for id \(id)")
+            return nil
+        }
+
+        return now
+    }
+
     /// Deletes the oldest text items so that at most `maxTextItems` remain.
     ///
     /// This is the text FIFO trim: when the 101st text item is added,

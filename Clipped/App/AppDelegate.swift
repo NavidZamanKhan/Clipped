@@ -163,4 +163,105 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ImageStorage.deleteImage(at: entry.path)
         }
     }
+
+    // MARK: - Paste Restoration
+
+    /// Restores the currently selected clipboard item, hides Clipped,
+    /// returns focus to the previous application, and simulates ⌘V.
+    ///
+    /// This is the central entry point for the "paste" action, invoked
+    /// by both Enter key and double-click in HomeView.
+    ///
+    /// The full flow:
+    /// 1. Find the selected item by ID.
+    /// 2. Tell the monitor to skip the next pasteboard change.
+    /// 3. Write the item's content to NSPasteboard.
+    /// 4. Move the item to the top of history (SQLite + in-memory).
+    /// 5. Hide the window and deactivate Clipped.
+    /// 6. After a brief async yield (to let macOS switch focus),
+    ///    simulate ⌘V via CGEvent.
+    func pasteSelectedItem() {
+        guard let selectedID = appState.selectedItemID,
+              let index = appState.items.firstIndex(where: { $0.id == selectedID })
+        else {
+            Self.logger.warning("Paste requested but no item is selected")
+            return
+        }
+
+        let item = appState.items[index]
+
+        // 1. Write the item back to the system clipboard.
+        switch item.contentType {
+        case .text:
+            ClipboardService.restoreText(item.text)
+        case .image:
+            if let path = item.imagePath {
+                ClipboardService.restoreImage(fromPath: path)
+            }
+        }
+
+        // 2. Record the *resulting* changeCount so the monitor ignores
+        //    exactly this change. Set after the write so we capture the
+        //    precise value, not a guess.
+        monitor.ignoredChangeCount = NSPasteboard.general.changeCount
+
+        // 3. Move the item to the top of history.
+        //    Update SQLite first, then the in-memory array.
+        if let newDate = store.updateTimestamp(id: item.id) {
+            appState.items.remove(at: index)
+            var updatedItem = item
+            updatedItem.copiedAt = newDate
+            appState.items.insert(updatedItem, at: 0)
+            appState.selectedItemID = updatedItem.id
+        }
+
+        Self.logger.info("Restored clipboard item id=\(item.id)")
+
+        // 4. Hide Clipped and let macOS return focus to the previous app.
+        windowManager.hideMainWindow()
+
+        // 5. Simulate ⌘V after a brief yield so macOS finishes the
+        //    focus transition. DispatchQueue.main.async runs the block
+        //    on the next run-loop cycle — typically <16ms.
+        DispatchQueue.main.async {
+            Self.simulatePaste()
+        }
+    }
+
+    /// Hides Clipped without pasting. Used when the user presses Esc.
+    func hideWindow() {
+        windowManager.hideMainWindow()
+    }
+
+    // MARK: - ⌘V Simulation
+
+    /// Simulates the standard macOS paste shortcut (Command + V) using
+    /// `CGEvent`. This posts a key-down and key-up event for the `V` key
+    /// with the Command modifier flag set.
+    ///
+    /// `CGEvent` is the correct API for this — it posts events at the
+    /// system level, reaching whatever application has focus. This is the
+    /// same mechanism used by macOS accessibility features and established
+    /// clipboard managers like Maccy and Flycut.
+    ///
+    /// The `0x09` keycode is the virtual key code for `V` on all macOS
+    /// keyboard layouts (it's positional, not character-based).
+    private static func simulatePaste() {
+        let source = CGEventSource(stateID: .combinedSessionState)
+
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
+        else {
+            logger.error("Failed to create CGEvent for paste simulation")
+            return
+        }
+
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+
+        logger.debug("Simulated ⌘V paste")
+    }
 }

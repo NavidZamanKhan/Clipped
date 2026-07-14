@@ -2,22 +2,22 @@ import SwiftUI
 
 /// The main view displayed when the app launches.
 ///
-/// In SwiftUI, a `View` is a struct that conforms to the `View` protocol.
-/// This is conceptually similar to a StatelessWidget in Flutter — it
-/// describes what the UI should look like. SwiftUI handles the rendering.
+/// Presents the clipboard history as a native macOS list with full
+/// keyboard navigation. The newest item is auto-selected on appear.
 ///
-/// `some View` is an "opaque return type." You don't need to specify the
-/// exact type; Swift infers it. Think of it like returning `Widget` in
-/// Flutter, but the compiler knows the concrete type at compile time.
+/// Keyboard:
+///   ↑ / ↓ — navigate items (handled natively by `List(selection:)`)
+///   Enter  — restore selected item to clipboard and paste (⌘V)
+///   Esc    — hide Clipped without pasting
 ///
-/// History is owned by `AppState` (injected from the `App`), so this
-/// view is a thin, declarative presentation layer. The clipboard
-/// monitor keeps running even when this view is not on screen.
+/// Mouse:
+///   Single click  — change selection
+///   Double click   — restore and paste (same as Enter)
+///   Scroll wheel   — scroll normally
 struct HomeView: View {
 
     /// The shared application state. Provided via `.environmentObject(appState)`
-    /// from `ClippedApp`. Reading `items` here is enough — SwiftUI will
-    /// re-render whenever the published value changes.
+    /// from `ClippedApp`. Contains the items array and the current selection.
     @EnvironmentObject private var appState: AppState
 
     var body: some View {
@@ -43,49 +43,20 @@ struct HomeView: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    // `List` gives us a native macOS scrollable list with
-                    // selection support and proper styling — similar to a
-                    // Flutter `ListView.builder`.
-                    //
-                    // `ForEach` iterates over `items`. Because `ClipboardItem`
-                    // conforms to `Identifiable`, SwiftUI uses each item's
-                    // `id` to track which row is which (like `key` in Flutter).
-                    List {
+                    // `List(selection:)` provides native macOS keyboard
+                    // navigation: ↑/↓ arrow keys change selection,
+                    // highlighted row tracks `selectedItemID`.
+                    List(selection: $appState.selectedItemID) {
                         ForEach(appState.items) { item in
-                            VStack(alignment: .leading, spacing: 4) {
-                                switch item.contentType {
-                                case .text:
-                                    // Text entry — same as before.
-                                    // `.lineLimit(4)` prevents a huge copied code
-                                    // block from blowing out the layout. The text
-                                    // is truncated with "..." after 4 lines.
-                                    Text(item.text)
-                                        .font(.body)
-                                        .lineLimit(4)
-                                        .truncationMode(.tail)
-                                        .textSelection(.enabled)
-
-                                case .image:
-                                    // Image entry — lazy thumbnail from file path.
-                                    if let path = item.imagePath {
-                                        ThumbnailView(path: path)
-                                    } else {
-                                        // Safety fallback if image_path is nil.
-                                        Image(systemName: "photo")
-                                            .font(.title2)
-                                            .foregroundStyle(.secondary)
-                                    }
+                            ClipboardRow(item: item)
+                                .tag(item.id)
+                                .onDoubleClick {
+                                    appState.selectedItemID = item.id
+                                    pasteSelectedItem()
                                 }
-
-                                // Show a relative timestamp like "2 minutes ago".
-                                // `.relative` is a built-in SwiftUI date format
-                                // that auto-updates. No manual formatting needed.
-                                Text(item.copiedAt, format: .relative(presentation: .named))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
                         }
                     }
+                    .listStyle(.inset(alternatesRowBackgrounds: true))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -93,10 +64,152 @@ struct HomeView: View {
         .padding()
         // Sets the macOS window title in the title bar.
         .navigationTitle("Clipped")
-        // No `onAppear` / `onDisappear` lifecycle hooks are needed here.
-        // The clipboard monitor is owned by `AppDelegate` and runs
-        // independently of any window. Closing the window does not
-        // affect monitoring.
+        .onAppear {
+            // Auto-select the newest item when the window appears.
+            appState.selectedItemID = appState.items.first?.id
+        }
+        .onKeyPress(.return) {
+            pasteSelectedItem()
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            hideWindow()
+            return .handled
+        }
+    }
+
+    // MARK: - Actions
+
+    /// Routes the paste action to `AppDelegate` via `NSApp.delegate`.
+    ///
+    /// HomeView doesn't own services — it reaches the delegate through
+    /// `NSApp.delegate`, which is the standard AppKit pattern for
+    /// accessing the app delegate from any context.
+    private func pasteSelectedItem() {
+        guard let delegate = NSApp.delegate as? AppDelegate else { return }
+        delegate.pasteSelectedItem()
+    }
+
+    /// Routes the hide action to `AppDelegate`.
+    private func hideWindow() {
+        guard let delegate = NSApp.delegate as? AppDelegate else { return }
+        delegate.hideWindow()
+    }
+}
+
+// MARK: - Clipboard Row
+
+/// A single row in the clipboard history list.
+///
+/// Extracted to keep the ForEach body readable. Displays either a
+/// text snippet (up to 4 lines) or an image thumbnail, plus a
+/// relative timestamp.
+private struct ClipboardRow: View {
+
+    let item: ClipboardItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            switch item.contentType {
+            case .text:
+                // `.lineLimit(4)` prevents a huge copied code block
+                // from blowing out the layout.
+                Text(item.text)
+                    .font(.body)
+                    .lineLimit(4)
+                    .truncationMode(.tail)
+                    .textSelection(.enabled)
+
+            case .image:
+                // Image entry — lazy thumbnail from file path.
+                if let path = item.imagePath {
+                    ThumbnailView(path: path)
+                } else {
+                    // Safety fallback if image_path is nil.
+                    Image(systemName: "photo")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // Show a relative timestamp like "2 minutes ago".
+            Text(item.copiedAt, format: .relative(presentation: .named))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - Double Click Modifier
+
+/// A view modifier that attaches a double-click gesture handler
+/// using AppKit's `NSClickGestureRecognizer`.
+///
+/// SwiftUI does not provide a built-in double-click modifier for
+/// macOS List rows. Using `.onTapGesture(count: 2)` conflicts with
+/// the List's built-in single-click selection handling. Instead, we
+/// overlay an AppKit gesture recognizer that only fires on double-click,
+/// without interfering with the List's native click behavior.
+private struct DoubleClickModifier: ViewModifier {
+
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            DoubleClickOverlay(action: action)
+        }
+    }
+}
+
+/// An `NSViewRepresentable` that attaches a double-click gesture
+/// recognizer to a transparent overlay view. The overlay is
+/// hit-test transparent for single clicks (so List selection works
+/// normally) and only fires the action on a double-click.
+private struct DoubleClickOverlay: NSViewRepresentable {
+
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = DoubleClickView()
+        let recognizer = NSClickGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.onDoubleClick)
+        )
+        recognizer.numberOfClicksRequired = 2
+        view.addGestureRecognizer(recognizer)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+
+    class Coordinator: NSObject {
+        let action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func onDoubleClick() {
+            action()
+        }
+    }
+}
+
+/// A transparent NSView subclass that allows single clicks to pass
+/// through to the underlying List (for selection) but catches double-
+/// clicks via the attached gesture recognizer.
+private class DoubleClickView: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+private extension View {
+    /// Attaches a double-click handler to a view.
+    func onDoubleClick(perform action: @escaping () -> Void) -> some View {
+        modifier(DoubleClickModifier(action: action))
     }
 }
 

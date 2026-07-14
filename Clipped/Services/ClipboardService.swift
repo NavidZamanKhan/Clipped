@@ -45,4 +45,32 @@ struct ClipboardService {
 
         return nil
     }
+
+    // MARK: - Restore
+
+    /// Writes plain text to the system clipboard, replacing its current
+    /// contents. Used when the user restores a historical text clip.
+    static func restoreText(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
+    /// Writes an image (loaded from a file path) to the system clipboard.
+    /// Used when the user restores a historical image clip.
+    ///
+    /// The image is placed as both PNG and TIFF data so that the widest
+    /// range of receiving applications can paste it.
+    static func restoreImage(fromPath path: String) {
+        guard let image = NSImage(contentsOfFile: path),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:])
+        else { return }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setData(pngData, forType: .png)
+        pasteboard.setData(tiffData, forType: .tiff)
+    }
 }

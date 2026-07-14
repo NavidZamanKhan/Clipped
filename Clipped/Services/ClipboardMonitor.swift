@@ -27,6 +27,15 @@ class ClipboardMonitor {
     /// someone has written to the clipboard since we last checked.
     private var lastChangeCount: Int = 0
 
+    /// The specific `NSPasteboard.changeCount` value to ignore.
+    ///
+    /// Set by the paste-restoration flow *after* writing to the
+    /// pasteboard. When the monitor detects this exact changeCount,
+    /// it silently consumes the change and clears this value.
+    /// More robust than a boolean flag because it matches the
+    /// *specific* change, not just "the next one."
+    var ignoredChangeCount: Int?
+
     /// Called when new non-empty plain text is detected on the clipboard.
     private var onNewText: ((String) -> Void)?
 
@@ -95,6 +104,15 @@ class ClipboardMonitor {
 
         // Update our snapshot so we don't process this change again.
         lastChangeCount = currentCount
+
+        // If this changeCount matches our own pasteboard write,
+        // consume it silently. This prevents Clipped's clipboard
+        // restoration from creating a duplicate history entry.
+        if let ignored = ignoredChangeCount, currentCount == ignored {
+            ignoredChangeCount = nil
+            Self.logger.debug("Skipped self-initiated clipboard change (count=\(currentCount))")
+            return
+        }
 
         // Priority 1: plain text.
         if let text = pasteboard.string(forType: .string), !text.isEmpty {
