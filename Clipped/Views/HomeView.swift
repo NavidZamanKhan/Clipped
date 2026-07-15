@@ -23,11 +23,8 @@ struct HomeView: View {
     var body: some View {
         VStack(spacing: 12) {
             // Header
-            Text("📋 Clipped")
+            Text("Clipped")
                 .font(.title)
-            Text("Lightweight Clipboard Manager")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
 
             Divider()
 
