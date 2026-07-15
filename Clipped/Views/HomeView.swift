@@ -20,11 +20,20 @@ struct HomeView: View {
     /// from `ClippedApp`. Contains the items array and the current selection.
     @EnvironmentObject private var appState: AppState
 
+    /// Drives focus behavior for the search TextField.
+    @FocusState private var isSearchFieldFocused: Bool
+
     var body: some View {
         VStack(spacing: 12) {
             // Header
             Text("Clipped")
                 .font(.title)
+
+            // Search Bar
+            TextField("Search... (Press / to search)", text: $appState.searchText)
+                .textFieldStyle(.roundedBorder)
+                .focused($isSearchFieldFocused)
+                .padding(.horizontal, 4)
 
             Divider()
 
@@ -39,13 +48,19 @@ struct HomeView: View {
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if appState.filteredItems.isEmpty {
+                    // Search returned no matching items
+                    Text("No matching items found.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     // `List(selection:)` provides native macOS keyboard
                     // navigation: ↑/↓ arrow keys change selection,
                     // highlighted row tracks `selectedItemID`.
                     ScrollViewReader { scrollViewProxy in
                         List(selection: $appState.selectedItemID) {
-                            ForEach(appState.items) { item in
+                            ForEach(appState.filteredItems) { item in
                                 ClipboardRow(item: item)
                                     .tag(item.id)
                                     .onDoubleClick {
@@ -66,7 +81,17 @@ struct HomeView: View {
                         }
                         .listStyle(.inset(alternatesRowBackgrounds: false))
                         .onChange(of: appState.scrollToTopTrigger) { oldValue, newValue in
+                            isSearchFieldFocused = false
                             if let firstId = appState.items.first?.id {
+                                DispatchQueue.main.async {
+                                    scrollViewProxy.scrollTo(firstId, anchor: .top)
+                                }
+                            }
+                        }
+                        .onChange(of: appState.searchText) { oldValue, newValue in
+                            // Auto-select first matching item when search text changes
+                            appState.selectedItemID = appState.filteredItems.first?.id
+                            if let firstId = appState.filteredItems.first?.id {
                                 DispatchQueue.main.async {
                                     scrollViewProxy.scrollTo(firstId, anchor: .top)
                                 }
@@ -78,6 +103,9 @@ struct HomeView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .padding()
+        .onChange(of: appState.focusSearchTrigger) { oldValue, newValue in
+            isSearchFieldFocused = true
+        }
         // Sets the macOS window title in the title bar.
         .navigationTitle("Clipped")
         // Keyboard handling (Return → paste, Escape → hide) is managed

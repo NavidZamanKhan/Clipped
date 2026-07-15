@@ -22,6 +22,23 @@ final class AppState: ObservableObject {
     /// Incremented whenever we want to force the view to scroll to the top item.
     @Published var scrollToTopTrigger: Int = 0
 
+    /// The active search text entered by the user in the search field.
+    @Published var searchText: String = ""
+
+    /// Incremented when we want to programmatically focus the search text field in the UI.
+    @Published var focusSearchTrigger: Int = 0
+
+    /// The filtered clipboard history based on the active search text.
+    var filteredItems: [ClipboardItem] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return items
+        }
+        return items.filter { item in
+            item.contentType == .text && item.text.localizedCaseInsensitiveContains(trimmed)
+        }
+    }
+
     // MARK: - Selection
 
     /// Selects the newest clipboard item.
@@ -31,6 +48,7 @@ final class AppState: ObservableObject {
     /// show — deterministically and synchronously, without relying on
     /// SwiftUI's `onAppear` lifecycle callback.
     func selectNewest() {
+        searchText = ""
         selectedItemID = items.first?.id
         scrollToTopTrigger += 1
     }

@@ -299,7 +299,20 @@ final class WindowManager {
                 return nil   // Consumed.
 
             default:
-                return event // Arrow keys, Page Up/Down, etc. pass through.
+                // Check if user pressed "/" without modifiers
+                let hasModifiers = event.modifierFlags.contains(.command) ||
+                                   event.modifierFlags.contains(.control) ||
+                                   event.modifierFlags.contains(.option)
+                if event.charactersIgnoringModifiers == "/", !hasModifiers {
+                    if let firstResponder = self.panel?.firstResponder,
+                       firstResponder is NSText {
+                        return event // Let it pass through to type "/" into the focused search field.
+                    }
+                    print("[TRACE] WindowManager: keyMonitor intercepted '/' to focus search")
+                    self.focusSearchField()
+                    return nil // Consumed — does not type a slash.
+                }
+                return event // Arrow keys, letters, etc. pass through.
             }
         }
 
@@ -317,6 +330,11 @@ final class WindowManager {
     }
 
     // MARK: - Key Actions
+
+    /// Triggers search field focus by incrementing focusSearchTrigger in AppState.
+    private func focusSearchField() {
+        appState?.focusSearchTrigger += 1
+    }
 
     /// Routes Return key to AppDelegate's paste pipeline.
     ///
