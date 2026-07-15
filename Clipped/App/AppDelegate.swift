@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import os
 
 /// The application delegate and central service owner.
@@ -16,6 +17,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         subsystem: "com.NavidZamanKhan.Clipped",
         category: "AppDelegate"
     )
+
+    // MARK: - Shared Reference
+
+    /// The shared instance of the AppDelegate adaptation.
+    /// In SwiftUI apps using @NSApplicationDelegateAdaptor, NSApp.delegate
+    /// returns an internal SwiftUI delegate wrapper. Casting that as? AppDelegate
+    /// fails silently. This static reference provides safe global access instead.
+    static private(set) var shared: AppDelegate?
+
+    override init() {
+        super.init()
+        Self.shared = self
+    }
 
     // MARK: - UI State
 
@@ -224,14 +238,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Self.logger.info("Restored clipboard item id=\(item.id)")
 
-        // 4. Hide Clipped and let macOS return focus to the previous app.
-        print("[TRACE] AppDelegate: about to call windowManager.hidePanel()")
+        // 4. Hide the panel to start the deactivation / focus return.
+        print("[TRACE] AppDelegate: calling windowManager.hidePanel()")
         windowManager.hidePanel()
 
-        // 5. Simulate ⌘V after a brief yield so macOS finishes the
-        //    focus transition. DispatchQueue.main.async runs the block
-        //    on the next run-loop cycle — typically <16ms.
-        DispatchQueue.main.async {
+        // 5. Asynchronously activate previous app and post the paste event.
+        //    This gives the OS window manager a chance to update the active application
+        //    focus during the next run loop cycle.
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            if let targetApp = self.windowManager.previousApp {
+                print("[TRACE] AppDelegate: activating target app \(targetApp.localizedName ?? "unknown")")
+                if #available(macOS 14.0, *) {
+                    targetApp.activate(options: [])
+                } else {
+                    targetApp.activate(options: .activateIgnoringOtherApps)
+                }
+            }
+
+            print("[TRACE] AppDelegate: calling simulatePaste()")
             Self.simulatePaste()
         }
     }
@@ -247,30 +273,99 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `CGEvent`. This posts a key-down and key-up event for the `V` key
     /// with the Command modifier flag set.
     ///
-    /// `CGEvent` is the correct API for this — it posts events at the
-    /// system level, reaching whatever application has focus. This is the
-    /// same mechanism used by macOS accessibility features and established
-    /// clipboard managers like Maccy and Flycut.
+    /// Implementation note — three concrete fixes over the previous version:
+    ///
+    /// 1. **Event tap: `.cgSessionEventTap` (not `.cghidEventTap`).**
+    ///    Per Apple's `CGEventTapLocation` documentation:
+    ///      - `.cghidEventTap` is the point where HID system events
+    ///        *enter the window server* — pre-session, pre-app routing.
+    ///        Events posted here from a backgrounded/process process are
+    ///        routinely filtered by the system before reaching the
+    ///        foreground app.
+    ///      - `.cgSessionEventTap` is the point where events enter
+    ///        *a login session* — the level at which normal app-to-app
+    ///        keyboard dispatch works.
+    ///    Maccy (the reference open-source clipboard manager, 1.1k+
+    ///    GitHub stars) uses `.cgSessionEventTap` in its `Clipboard.paste()`
+    ///    implementation. The choice of tap is the single most common
+    ///    reason a synthetic ⌘V silently fails.
+    ///
+    /// 2. **Local event suppression filter.** Before posting, we set the
+    ///    event source's filter to `permitLocalMouseEvents +
+    ///    permitSystemDefinedEvents` during the suppression interval.
+    ///    This prevents Clipped's own `NSEvent.addLocalMonitorForEvents`
+    ///    (the one intercepting Return/Escape) from re-capturing the
+    ///    synthesized V keystroke and short-circuiting delivery. Maccy
+    ///    applies this same filter for the same reason.
+    ///
+    /// 3. **Synchronous call, no `DispatchQueue.main.async`.** The caller
+    ///    (`pasteSelectedItem`) invokes this *before* hiding the panel.
+    ///    Posting CGEvent while the activation transition is still
+    ///    pending is what causes the window server to deliver the
+    ///    keystroke to the next-foreground application.
     ///
     /// The `0x09` keycode is the virtual key code for `V` on all macOS
     /// keyboard layouts (it's positional, not character-based).
     private static func simulatePaste() {
         print("[TRACE] AppDelegate: simulatePaste() entered")
+
+        // Verify Accessibility is granted, prompting the user if not trusted.
+        guard Accessibility.isTrusted(prompt: true) else {
+            logger.error("Accessibility permission not granted — cannot post synthetic ⌘V")
+            print("[TRACE] AppDelegate: simulatePaste() — ABORTED: Accessibility not trusted")
+            return
+        }
+
+        // Use `.combinedSessionState` to inherit the user's actual modifier state.
         let source = CGEventSource(stateID: .combinedSessionState)
 
+        // Suppress local events for the suppression interval so that Clipped's
+        // own key monitor doesn't see the synthesized keystroke.
+        source?.setLocalEventsFilterDuringSuppressionState(
+            [.permitLocalMouseEvents, .permitSystemDefinedEvents],
+            state: .eventSuppressionStateSuppressionInterval
+        )
+
+        // Virtual key code 0x09 = 'v' on all macOS keyboard layouts.
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
         else {
             logger.error("Failed to create CGEvent for paste simulation")
+            print("[TRACE] AppDelegate: simulatePaste() — ABORTED: CGEvent init returned nil")
             return
         }
 
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
 
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+        keyDown.post(tap: .cgAnnotatedSessionEventTap)
+        keyUp.post(tap: .cgAnnotatedSessionEventTap)
 
-        logger.debug("Simulated ⌘V paste")
+        print("[TRACE] AppDelegate: simulatePaste() posted keyDown + keyUp on .cgAnnotatedSessionEventTap")
+        logger.debug("Simulated ⌘V paste on .cgAnnotatedSessionEventTap")
+    }
+}
+
+// MARK: - Accessibility
+
+/// Runtime check for the Accessibility (TCC) permission required to post
+/// synthetic keystrokes to other applications via `CGEvent`.
+///
+/// `AXIsProcessTrustedWithOptions(nil)` returns the current trust state
+/// without prompting. If the user has not yet granted Accessibility in
+/// System Settings → Privacy & Security → Accessibility, this returns
+/// `false` and any subsequent `CGEvent.post` is silently dropped by the
+/// window server.
+enum Accessibility {
+
+    /// Returns `true` if the process is currently trusted for Accessibility.
+    /// If `prompt` is true, prompts the user to grant permissions via System Settings if not already trusted.
+    static func isTrusted(prompt: Bool = false) -> Bool {
+        if prompt {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            return AXIsProcessTrustedWithOptions(options)
+        } else {
+            return AXIsProcessTrustedWithOptions(nil)
+        }
     }
 }

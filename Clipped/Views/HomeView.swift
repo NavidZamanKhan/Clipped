@@ -77,13 +77,13 @@ struct HomeView: View {
     /// `NSApp.delegate`, which is the standard AppKit pattern for
     /// accessing the app delegate from any context.
     private func pasteSelectedItem() {
-        guard let delegate = NSApp.delegate as? AppDelegate else { return }
+        guard let delegate = AppDelegate.shared else { return }
         delegate.pasteSelectedItem()
     }
 
     /// Routes the hide action to `AppDelegate`.
     private func hideWindow() {
-        guard let delegate = NSApp.delegate as? AppDelegate else { return }
+        guard let delegate = AppDelegate.shared else { return }
         delegate.hideWindow()
     }
 }

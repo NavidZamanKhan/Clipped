@@ -94,6 +94,9 @@ final class WindowManager {
     /// an opaque object that must be passed to `NSEvent.removeMonitor`.
     private var keyMonitor: Any?
 
+    /// Tracks the previously active application before the panel was shown.
+    private(set) var previousApp: NSRunningApplication?
+
     // MARK: - Panel Creation
 
     /// Creates the panel and embeds the SwiftUI content view.
@@ -219,6 +222,13 @@ final class WindowManager {
             return
         }
 
+        // Capture the previously frontmost application before we make the panel key or activate our app.
+        if let frontmost = NSWorkspace.shared.frontmostApplication,
+           frontmost.bundleIdentifier != Bundle.main.bundleIdentifier {
+            self.previousApp = frontmost
+            Self.logger.info("Captured previously active app: \(frontmost.localizedName ?? "unknown")")
+        }
+
         // 1. Deterministic selection — synchronous, before any rendering.
         appState?.selectNewest()
 
@@ -314,13 +324,13 @@ final class WindowManager {
     /// HomeView's double-click handler uses. This is the standard
     /// AppKit way to reach the app delegate from non-SwiftUI code.
     private func performPaste() {
-        guard let delegate = NSApp.delegate as? AppDelegate else { return }
+        guard let delegate = AppDelegate.shared else { return }
         delegate.pasteSelectedItem()
     }
 
     /// Routes Escape key to AppDelegate's hide method.
     private func performHide() {
-        guard let delegate = NSApp.delegate as? AppDelegate else { return }
+        guard let delegate = AppDelegate.shared else { return }
         delegate.hideWindow()
     }
 }
