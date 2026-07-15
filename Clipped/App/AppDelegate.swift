@@ -400,7 +400,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Self.logger.error("Failed to register global hotkey (OSStatus: \(registerStatus))")
         } else {
             print("[TRACE] RegisterEventHotKey returned noErr")
-            Self.logger.info("Global hotkey (Shift+Control+V) registered successfully")
+            Self.logger.info("Global hotkey (Shift+Command+V) registered successfully")
         }
     }
 
@@ -428,7 +428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 private struct HotkeyConfig {
     static let keyCode: UInt32 = 9 // 'V'
-    static let modifiers: UInt32 = UInt32(controlKey) | UInt32(shiftKey) // Control (⌃) + Shift (⇧)
+    static let modifiers: UInt32 = UInt32(cmdKey) | UInt32(shiftKey) // Command (⌘) + Shift (⇧)
     static let signature: UInt32 = 0x43_4c_50_44 // 'CLPD' in hex
     static let id: UInt32 = 1
 }
