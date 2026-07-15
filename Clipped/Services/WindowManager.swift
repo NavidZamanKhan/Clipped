@@ -84,6 +84,16 @@ final class WindowManager {
     /// is not actually a direct cycle — `weak` is correct practice here.
     private weak var appState: AppState?
 
+    /// The local event monitor for Return and Escape keyboard shortcuts.
+    ///
+    /// Installed when the panel is shown; removed when hidden. The monitor
+    /// fires BEFORE the responder chain, intercepting key events before
+    /// `NSTableView` (backing SwiftUI's List) can consume them.
+    ///
+    /// Stored as `Any?` because `NSEvent.addLocalMonitorForEvents` returns
+    /// an opaque object that must be passed to `NSEvent.removeMonitor`.
+    private var keyMonitor: Any?
+
     // MARK: - Panel Creation
 
     /// Creates the panel and embeds the SwiftUI content view.
@@ -218,6 +228,9 @@ final class WindowManager {
         // 3. Activate the application so key events reach the panel.
         NSApp.activate(ignoringOtherApps: true)
 
+        // 4. Install the keyboard monitor so Return and Escape work.
+        installKeyMonitor()
+
         Self.logger.debug("Panel shown")
     }
 
@@ -233,8 +246,81 @@ final class WindowManager {
     /// This is the same mechanism used by Alfred and Raycast.
     func hidePanel() {
         print("[TRACE] WindowManager: hidePanel() entered")
+        removeKeyMonitor()
         panel?.orderOut(nil)
         NSApp.hide(nil)
         Self.logger.debug("Panel hidden")
+    }
+
+    // MARK: - Key Monitor
+
+    /// Installs a local event monitor that intercepts Return and Escape
+    /// BEFORE they reach the responder chain.
+    ///
+    /// This is the correct AppKit API for keyboard-first launcher utilities.
+    /// The same pattern is used by Maccy, Alfred, and Raycast.
+    ///
+    /// The monitor:
+    /// - Catches Return (keyCode 36) → triggers paste
+    /// - Catches Escape (keyCode 53) → triggers hide
+    /// - Returns all other key events unchanged → normal responder chain
+    ///
+    /// The `[weak self]` capture prevents a retain cycle between the
+    /// monitor closure and `WindowManager`.
+    private func installKeyMonitor() {
+        // Guard against double-install if showPanel() is called twice
+        // without an intervening hidePanel().
+        guard keyMonitor == nil else { return }
+
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.panel?.isKeyWindow == true else {
+                return event  // Not our panel — pass through unchanged.
+            }
+
+            switch event.keyCode {
+            case 36:  // Return / Enter
+                print("[TRACE] WindowManager: keyMonitor intercepted Return")
+                self.performPaste()
+                return nil   // Consumed — never reaches NSTableView.
+
+            case 53:  // Escape
+                print("[TRACE] WindowManager: keyMonitor intercepted Escape")
+                self.performHide()
+                return nil   // Consumed.
+
+            default:
+                return event // Arrow keys, Page Up/Down, etc. pass through.
+            }
+        }
+
+        Self.logger.debug("Key monitor installed")
+    }
+
+    /// Removes the local event monitor. Called in `hidePanel()` so that
+    /// key events are not intercepted while the panel is hidden.
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+            Self.logger.debug("Key monitor removed")
+        }
+    }
+
+    // MARK: - Key Actions
+
+    /// Routes Return key to AppDelegate's paste pipeline.
+    ///
+    /// Uses the same `NSApp.delegate as? AppDelegate` pattern that
+    /// HomeView's double-click handler uses. This is the standard
+    /// AppKit way to reach the app delegate from non-SwiftUI code.
+    private func performPaste() {
+        guard let delegate = NSApp.delegate as? AppDelegate else { return }
+        delegate.pasteSelectedItem()
+    }
+
+    /// Routes Escape key to AppDelegate's hide method.
+    private func performHide() {
+        guard let delegate = NSApp.delegate as? AppDelegate else { return }
+        delegate.hideWindow()
     }
 }

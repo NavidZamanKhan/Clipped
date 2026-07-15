@@ -64,15 +64,9 @@ struct HomeView: View {
         .padding()
         // Sets the macOS window title in the title bar.
         .navigationTitle("Clipped")
-        .onKeyPress(.return) {
-            print("[TRACE] HomeView: .onKeyPress(.return) fired")
-            pasteSelectedItem()
-            return .handled
-        }
-        .onKeyPress(.escape) {
-            hideWindow()
-            return .handled
-        }
+        // Keyboard handling (Return → paste, Escape → hide) is managed
+        // by the AppKit local event monitor in WindowManager, not by
+        // SwiftUI's .onKeyPress. See WindowManager.installKeyMonitor().
     }
 
     // MARK: - Actions
