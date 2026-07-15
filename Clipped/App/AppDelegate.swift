@@ -91,6 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.windowManager.showPanel()
         })
 
+
+
         Self.logger.info("All services started")
     }
 
@@ -299,18 +301,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///    applies this same filter for the same reason.
     ///
     /// 3. **Synchronous call, no `DispatchQueue.main.async`.** The caller
-    ///    (`pasteSelectedItem`) invokes this *before* hiding the panel.
+    ///    `pasteSelectedItem` invokes this *before* hiding the panel.
     ///    Posting CGEvent while the activation transition is still
     ///    pending is what causes the window server to deliver the
     ///    keystroke to the next-foreground application.
     ///
     /// The `0x09` keycode is the virtual key code for `V` on all macOS
     /// keyboard layouts (it's positional, not character-based).
-    private static func simulatePaste() {
+    static func simulatePaste() {
         print("[TRACE] AppDelegate: simulatePaste() entered")
 
-        // Verify Accessibility is granted, prompting the user if not trusted.
-        guard Accessibility.isTrusted(prompt: true) else {
+        // Diagnostic: check raw trust without prompting first.
+        let isCurrentlyTrusted = Accessibility.isTrusted(prompt: false)
+        print("[TRACE] AppDelegate: simulatePaste() — Raw trust check (prompt: false) = \(isCurrentlyTrusted)")
+
+        guard isCurrentlyTrusted else {
+            print("[TRACE] AppDelegate: simulatePaste() — Not trusted, requesting prompt...")
+            _ = Accessibility.isTrusted(prompt: true)
             logger.error("Accessibility permission not granted — cannot post synthetic ⌘V")
             print("[TRACE] AppDelegate: simulatePaste() — ABORTED: Accessibility not trusted")
             return
