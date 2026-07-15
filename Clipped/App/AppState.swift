@@ -19,6 +19,9 @@ final class AppState: ObservableObject {
     /// `List(selection:)` highlighting and keyboard navigation.
     @Published var selectedItemID: ClipboardItem.ID?
 
+    /// Incremented whenever we want to force the view to scroll to the top item.
+    @Published var scrollToTopTrigger: Int = 0
+
     // MARK: - Selection
 
     /// Selects the newest clipboard item.
@@ -29,6 +32,7 @@ final class AppState: ObservableObject {
     /// SwiftUI's `onAppear` lifecycle callback.
     func selectNewest() {
         selectedItemID = items.first?.id
+        scrollToTopTrigger += 1
     }
 }
 

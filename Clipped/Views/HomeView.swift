@@ -43,27 +43,36 @@ struct HomeView: View {
                     // `List(selection:)` provides native macOS keyboard
                     // navigation: ↑/↓ arrow keys change selection,
                     // highlighted row tracks `selectedItemID`.
-                    List(selection: $appState.selectedItemID) {
-                        ForEach(appState.items) { item in
-                            ClipboardRow(item: item)
-                                .tag(item.id)
-                                .onDoubleClick {
-                                    appState.selectedItemID = item.id
-                                    pasteSelectedItem()
+                    ScrollViewReader { scrollViewProxy in
+                        List(selection: $appState.selectedItemID) {
+                            ForEach(appState.items) { item in
+                                ClipboardRow(item: item)
+                                    .tag(item.id)
+                                    .onDoubleClick {
+                                        appState.selectedItemID = item.id
+                                        pasteSelectedItem()
+                                    }
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 12)
+                                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                                    .listRowBackground(
+                                        appState.selectedItemID == item.id
+                                            ? nil // nil delegates to standard selection highlight
+                                            : Color.clear
+                                    )
+                                    .listRowSeparator(.visible)
+                                    .listRowSeparatorTint(Color.primary.opacity(0.1))
+                            }
+                        }
+                        .listStyle(.inset(alternatesRowBackgrounds: false))
+                        .onChange(of: appState.scrollToTopTrigger) { oldValue, newValue in
+                            if let firstId = appState.items.first?.id {
+                                DispatchQueue.main.async {
+                                    scrollViewProxy.scrollTo(firstId, anchor: .top)
                                 }
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 12)
-                                .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
-                                .listRowBackground(
-                                    appState.selectedItemID == item.id
-                                        ? nil // nil delegates to standard selection highlight
-                                        : Color.clear
-                                )
-                                .listRowSeparator(.visible)
-                                .listRowSeparatorTint(Color.primary.opacity(0.1))
+                            }
                         }
                     }
-                    .listStyle(.inset(alternatesRowBackgrounds: false))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
