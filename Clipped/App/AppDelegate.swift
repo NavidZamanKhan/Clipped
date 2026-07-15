@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon
 import os
 
 /// The application delegate and central service owner.
@@ -51,7 +52,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarManager: MenuBarManager?
 
     /// Manages window presentation.
-    private let windowManager = WindowManager()
+    let windowManager = WindowManager()
+
+    // MARK: - Hotkey Properties
+    private var hotKeyRef: EventHotKeyRef?
+    private var eventHandlerRef: EventHandlerRef?
 
     // MARK: - NSApplicationDelegate
 
@@ -91,7 +96,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.windowManager.showPanel()
         })
 
-
+        // 6. Register global hotkey for Shift+Control+V
+        registerGlobalHotkey()
 
         Self.logger.info("All services started")
     }
@@ -105,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        unregisterGlobalHotkey()
         monitor.stop()
         store.close()
         Self.logger.info("Application terminated — all resources released")
@@ -351,7 +358,113 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         print("[TRACE] AppDelegate: simulatePaste() posted keyDown + keyUp on .cgAnnotatedSessionEventTap")
         logger.debug("Simulated ⌘V paste on .cgAnnotatedSessionEventTap")
     }
+
+    // MARK: - Global Hotkey Registration
+
+    private func registerGlobalHotkey() {
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: OSType(kEventHotKeyPressed)
+        )
+
+        let userData = Unmanaged.passUnretained(self).toOpaque()
+
+        let handlerStatus = InstallEventHandler(
+            GetApplicationEventTarget(),
+            hotKeyHandler,
+            1,
+            &eventType,
+            userData,
+            &eventHandlerRef
+        )
+
+        if handlerStatus != noErr {
+            print("[TRACE] Failed to install global hotkey handler (OSStatus: \(handlerStatus))")
+            Self.logger.error("Failed to install global hotkey handler (OSStatus: \(handlerStatus))")
+            return
+        }
+        print("[TRACE] InstallEventHandler returned noErr")
+
+        let hotKeyID = EventHotKeyID(signature: HotkeyConfig.signature, id: HotkeyConfig.id)
+        let registerStatus = RegisterEventHotKey(
+            HotkeyConfig.keyCode,
+            HotkeyConfig.modifiers,
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKeyRef
+        )
+
+        if registerStatus != noErr {
+            print("[TRACE] Failed to register global hotkey (OSStatus: \(registerStatus))")
+            Self.logger.error("Failed to register global hotkey (OSStatus: \(registerStatus))")
+        } else {
+            print("[TRACE] RegisterEventHotKey returned noErr")
+            Self.logger.info("Global hotkey (Shift+Control+V) registered successfully")
+        }
+    }
+
+    private func unregisterGlobalHotkey() {
+        if let hotKeyRef = self.hotKeyRef {
+            let status = UnregisterEventHotKey(hotKeyRef)
+            if status != noErr {
+                Self.logger.error("Failed to unregister global hotkey (OSStatus: \(status))")
+            } else {
+                Self.logger.info("Global hotkey unregistered successfully")
+            }
+            self.hotKeyRef = nil
+        }
+        if let eventHandlerRef = self.eventHandlerRef {
+            let status = RemoveEventHandler(eventHandlerRef)
+            if status != noErr {
+                Self.logger.error("Failed to remove event handler (OSStatus: \(status))")
+            }
+            self.eventHandlerRef = nil
+        }
+    }
 }
+
+// MARK: - Global Hotkey Configuration
+
+private struct HotkeyConfig {
+    static let keyCode: UInt32 = 9 // 'V'
+    static let modifiers: UInt32 = UInt32(controlKey) | UInt32(shiftKey) // Control (⌃) + Shift (⇧)
+    static let signature: UInt32 = 0x43_4c_50_44 // 'CLPD' in hex
+    static let id: UInt32 = 1
+}
+
+private func hotKeyHandler(
+    nextHandler: EventHandlerCallRef?,
+    theEvent: EventRef?,
+    userData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    print("[TRACE] Global hotkey fired")
+    guard let theEvent = theEvent, let userData = userData else {
+        return noErr
+    }
+
+    var hotKeyID = EventHotKeyID()
+    let status = GetEventParameter(
+        theEvent,
+        EventParamName(kEventParamDirectObject),
+        EventParamType(typeEventHotKeyID),
+        nil,
+        MemoryLayout<EventHotKeyID>.size,
+        nil,
+        &hotKeyID
+    )
+
+    if status == noErr {
+        if hotKeyID.signature == HotkeyConfig.signature && hotKeyID.id == HotkeyConfig.id {
+            let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
+            DispatchQueue.main.async {
+                appDelegate.windowManager.showPanel()
+            }
+        }
+    }
+    return noErr
+}
+
 
 // MARK: - Accessibility
 

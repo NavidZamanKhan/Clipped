@@ -54,9 +54,19 @@ struct HomeView: View {
                                     appState.selectedItemID = item.id
                                     pasteSelectedItem()
                                 }
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                                .listRowBackground(
+                                    appState.selectedItemID == item.id
+                                        ? nil // nil delegates to standard selection highlight
+                                        : Color.clear
+                                )
+                                .listRowSeparator(.visible)
+                                .listRowSeparatorTint(Color.primary.opacity(0.1))
                         }
                     }
-                    .listStyle(.inset(alternatesRowBackgrounds: true))
+                    .listStyle(.inset(alternatesRowBackgrounds: false))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -100,7 +110,7 @@ private struct ClipboardRow: View {
     let item: ClipboardItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
             switch item.contentType {
             case .text:
                 // `.lineLimit(4)` prevents a huge copied code block
