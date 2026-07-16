@@ -336,6 +336,32 @@ final class WindowManager {
         appState?.focusSearchTrigger += 1
     }
 
+    /// Finds the underlying NSTableView in the panel and makes it the active first responder.
+    func makeListFirstResponder() {
+        guard let panel = panel else { return }
+        if let tableView = findTableView(in: panel.contentView) {
+            panel.makeFirstResponder(tableView)
+            print("[TRACE] WindowManager: Successfully restored focus to NSTableView")
+            Self.logger.debug("Successfully restored focus to NSTableView")
+        } else {
+            print("[TRACE] WindowManager: WARNING: Could not find NSTableView to restore focus")
+            Self.logger.warning("Could not find NSTableView to restore focus")
+        }
+    }
+
+    private func findTableView(in view: NSView?) -> NSTableView? {
+        guard let view = view else { return nil }
+        if let tableView = view as? NSTableView {
+            return tableView
+        }
+        for subview in view.subviews {
+            if let found = findTableView(in: subview) {
+                return found
+            }
+        }
+        return nil
+    }
+
     /// Routes Return key to AppDelegate's paste pipeline.
     ///
     /// Uses the same `NSApp.delegate as? AppDelegate` pattern that

@@ -20,8 +20,13 @@ struct HomeView: View {
     /// from `ClippedApp`. Contains the items array and the current selection.
     @EnvironmentObject private var appState: AppState
 
-    /// Drives focus behavior for the search TextField.
-    @FocusState private var isSearchFieldFocused: Bool
+    enum PanelFocus {
+        case search
+        case list
+    }
+
+    /// Drives focus behavior for the search TextField and the main List.
+    @FocusState private var focusedField: PanelFocus?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -30,9 +35,9 @@ struct HomeView: View {
                 .font(.title)
 
             // Search Bar
-            TextField("Search... (Press / to search)", text: $appState.searchText)
+            TextField("Press / to search", text: $appState.searchText)
                 .textFieldStyle(.roundedBorder)
-                .focused($isSearchFieldFocused)
+                .focused($focusedField, equals: .search)
                 .padding(.horizontal, 4)
 
             Divider()
@@ -80,8 +85,13 @@ struct HomeView: View {
                             }
                         }
                         .listStyle(.inset(alternatesRowBackgrounds: false))
+                        .focused($focusedField, equals: .list)
                         .onChange(of: appState.scrollToTopTrigger) { oldValue, newValue in
-                            isSearchFieldFocused = false
+                            DispatchQueue.main.async {
+                                print("[TRACE] HomeView scrollToTopTrigger: before reset, focusedField = \(String(describing: focusedField))")
+                                focusedField = .list
+                                AppDelegate.shared?.windowManager.makeListFirstResponder()
+                            }
                             if let firstId = appState.items.first?.id {
                                 DispatchQueue.main.async {
                                     scrollViewProxy.scrollTo(firstId, anchor: .top)
@@ -104,7 +114,7 @@ struct HomeView: View {
         }
         .padding()
         .onChange(of: appState.focusSearchTrigger) { oldValue, newValue in
-            isSearchFieldFocused = true
+            focusedField = .search
         }
         // Sets the macOS window title in the title bar.
         .navigationTitle("Clipped")
