@@ -57,13 +57,7 @@ final class MenuBarManager: NSObject {
         showItem.target = self
         menu.addItem(showItem)
 
-        let testPasteItem = NSMenuItem(
-            title: "Test Paste",
-            action: #selector(testPasteClick),
-            keyEquivalent: ""
-        )
-        testPasteItem.target = self
-        menu.addItem(testPasteItem)
+
 
         menu.addItem(.separator())
 
@@ -83,10 +77,7 @@ final class MenuBarManager: NSObject {
         onShowClipped()
     }
 
-    @objc private func testPasteClick() {
-        print("[TRACE] MenuBarManager: Test Paste clicked")
-        AppDelegate.simulatePaste()
-    }
+
 
     @objc private func quitClipped() {
         NSApp.terminate(nil)

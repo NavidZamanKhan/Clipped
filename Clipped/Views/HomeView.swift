@@ -36,7 +36,10 @@ struct HomeView: View {
 
             // Search Bar
             TextField("Press / to search", text: $appState.searchText)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(GlassSearchFieldBackground())
                 .focused($focusedField, equals: .search)
                 .padding(.horizontal, 4)
 
@@ -76,9 +79,7 @@ struct HomeView: View {
                                     .padding(.horizontal, 12)
                                     .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                                     .listRowBackground(
-                                        appState.selectedItemID == item.id
-                                            ? nil // nil delegates to standard selection highlight
-                                            : Color.clear
+                                        SelectionHighlightView(isSelected: appState.selectedItemID == item.id)
                                     )
                                     .listRowSeparator(.visible)
                                     .listRowSeparatorTint(Color.primary.opacity(0.1))
@@ -181,6 +182,33 @@ private struct ClipboardRow: View {
             Text(item.copiedAt, format: .relative(presentation: .named))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - Selection & Search Backgrounds
+
+private struct GlassSearchFieldBackground: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
+            )
+    }
+}
+
+private struct SelectionHighlightView: View {
+    let isSelected: Bool
+
+    var body: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: Color.black.opacity(0.1), radius: 1, x: 0, y: 0.5)
+        } else {
+            Color.clear
         }
     }
 }
