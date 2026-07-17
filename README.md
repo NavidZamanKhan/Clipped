@@ -7,11 +7,12 @@ Clipped is designed to feel like a first-party macOS utility. It runs quietly in
 ## Features
 
 - Native macOS application built with SwiftUI and AppKit
-- Runs as a menu bar utility
+- Runs as a menu bar utility with a global shortcut (`Shift+Command+V`)
 - Automatic clipboard history
 - Persistent clipboard storage using SQLite
 - Image clipboard support
-- Lightweight and keyboard-focused
+- Search clipboard history (press `/` to focus search)
+- Lightweight and keyboard-focused (↑/↓ to navigate, Enter to paste, Esc to hide)
 - Local-first with no cloud services
 - Privacy-friendly with all data stored on-device
 
