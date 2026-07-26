@@ -82,6 +82,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor [weak self] in
                     self?.handleNewImage(image)
                 }
+            },
+            onNewFile: { [weak self] url in
+                Task { @MainActor [weak self] in
+                    self?.handleNewFile(url)
+                }
             }
         )
 
@@ -120,9 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Clipboard Handling
 
     /// Captures the current clipboard content once at launch.
-    /// Text is checked first; if found, image capture is skipped.
+    /// File is checked first, then plain text, then image.
     private func captureCurrentClipboard() {
-        if let currentText = ClipboardService.currentText(), !currentText.isEmpty {
+        if let currentURL = ClipboardService.currentFileURL() {
+            handleNewFile(currentURL)
+        } else if let currentText = ClipboardService.currentText(), !currentText.isEmpty {
             let isDuplicate = appState.items
                 .first(where: { $0.contentType == .text })?.text == currentText
             if !isDuplicate {
@@ -162,6 +169,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         trimImagesIfNeeded()
     }
 
+    /// Inserts a newly observed file reference entry and trims overflow.
+    private func handleNewFile(_ url: URL) {
+        let path = url.path
+        // Skip consecutive duplicates (same file path copied twice in a row).
+        // Checks full file PATH (not filename alone) so different files with identical
+        // names in different folders are NOT treated as duplicates.
+        if appState.items.first?.contentType == .file
+            && appState.items.first?.filePath == path { return }
+
+        if let newItem = store.insertFile(path: path) {
+            appState.items.insert(newItem, at: 0)
+            trimFilesIfNeeded()
+        }
+    }
+
     /// Drops oldest text items so that at most 100 remain.
     private func trimTextIfNeeded() {
         let textCount = appState.items.filter { $0.contentType == .text }.count
@@ -189,6 +211,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         for entry in deleted {
             ImageStorage.deleteImage(at: entry.path)
+        }
+    }
+
+    /// Drops oldest file items so that at most 50 remain.
+    private func trimFilesIfNeeded() {
+        let fileCount = appState.items.filter { $0.contentType == .file }.count
+        guard fileCount > 50 else { return }
+
+        store.trimFiles()
+
+        var fileSeen = 0
+        appState.items.removeAll { item in
+            guard item.contentType == .file else { return false }
+            fileSeen += 1
+            return fileSeen > 50
         }
     }
 
@@ -227,6 +264,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .image:
             if let path = item.imagePath {
                 ClipboardService.restoreImage(fromPath: path)
+            }
+        case .file:
+            if let path = item.filePath {
+                ClipboardService.restoreFile(atPath: path)
             }
         }
 

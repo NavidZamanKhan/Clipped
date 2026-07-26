@@ -176,6 +176,32 @@ private struct ClipboardRow: View {
                         .font(.title2)
                         .foregroundStyle(.secondary)
                 }
+
+            case .file:
+                // File entry — native system icon + filename + path.
+                if let path = item.filePath {
+                    HStack(spacing: 10) {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: path))
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 32, height: 32)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(URL(fileURLWithPath: path).lastPathComponent)
+                                .font(.body.weight(.medium))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text(path)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.head)
+                        }
+                    }
+                } else {
+                    Image(systemName: "doc")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             // Show a relative timestamp like "2 minutes ago".

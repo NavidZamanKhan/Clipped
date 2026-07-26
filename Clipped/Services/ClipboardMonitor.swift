@@ -42,23 +42,27 @@ class ClipboardMonitor {
     /// Called when a new image is detected on the clipboard.
     private var onNewImage: ((NSImage) -> Void)?
 
+    /// Called when a file URL reference is detected on the clipboard.
+    private var onNewFile: ((URL) -> Void)?
+
     /// Begins polling the clipboard at a 1-second interval.
     ///
     /// Each clipboard change is treated as mutually exclusive:
-    /// text is checked first. If non-empty text is found, the image
-    /// check is skipped. This matches user expectations when an app
-    /// puts both text and image representations on the pasteboard.
+    /// File URL is checked first (since Finder copies put plain-text path fallbacks on the pasteboard).
+    /// If no file URL is found, plain text is checked. If no plain text is found, image is checked.
     ///
     /// - Parameters:
     ///   - onNewText: Called with the new text when plain text is detected.
-    ///   - onNewImage: Called with the new image when an image is detected
-    ///     and no plain text was found.
+    ///   - onNewImage: Called with the new image when an image is detected.
+    ///   - onNewFile: Called with the file URL when a file reference is detected.
     func start(
         onNewText: @escaping (String) -> Void,
-        onNewImage: @escaping (NSImage) -> Void
+        onNewImage: @escaping (NSImage) -> Void,
+        onNewFile: @escaping (URL) -> Void
     ) {
         self.onNewText = onNewText
         self.onNewImage = onNewImage
+        self.onNewFile = onNewFile
 
         // Snapshot the current changeCount so we don't immediately
         // re-report whatever is already on the clipboard at launch.
@@ -92,9 +96,9 @@ class ClipboardMonitor {
     /// Compares the current `changeCount` to our stored value.
     /// If different, reads the clipboard and calls the appropriate callback.
     ///
-    /// Text is checked first. Only if no non-empty text is found do we
-    /// check for an image. This ensures a single clipboard event produces
-    /// at most one history entry.
+    /// Priority 1: File URL (checked BEFORE plain text, because file copies in Finder include plain-text path fallbacks).
+    /// Priority 2: Plain text.
+    /// Priority 3: Image.
     private func checkForChanges() {
         let pasteboard = NSPasteboard.general
         let currentCount = pasteboard.changeCount
@@ -114,15 +118,22 @@ class ClipboardMonitor {
             return
         }
 
-        // Priority 1: plain text.
+        // Priority 1: File URL (must be checked BEFORE plain text).
+        if let fileURL = ClipboardService.currentFileURL() {
+            onNewFile?(fileURL)
+            return
+        }
+
+        // Priority 2: Plain text.
         if let text = pasteboard.string(forType: .string), !text.isEmpty {
             onNewText?(text)
             return
         }
 
-        // Priority 2: image (PNG preferred, TIFF fallback).
+        // Priority 3: Image (PNG preferred, TIFF fallback).
         if let image = ClipboardService.currentImage() {
             onNewImage?(image)
+            return
         }
     }
 }

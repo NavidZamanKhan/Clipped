@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Reads content from the macOS system clipboard.
 ///
@@ -11,6 +12,11 @@ import AppKit
 /// we just reach into the system pasteboard, grab the content, and return it.
 struct ClipboardService {
 
+    private static let logger = Logger(
+        subsystem: "com.NavidZamanKhan.Clipped",
+        category: "ClipboardService"
+    )
+
     /// Returns the current plain-text content of the system clipboard,
     /// or `nil` if the clipboard doesn't contain plain text.
     ///
@@ -19,6 +25,27 @@ struct ClipboardService {
     /// It returns an optional `String?` — `nil` means "no plain text available."
     static func currentText() -> String? {
         NSPasteboard.general.string(forType: .string)
+    }
+
+    /// Returns the current file URL on the system clipboard, or `nil`
+    /// if the clipboard doesn't contain a real file object reference.
+    ///
+    /// Requires native file pasteboard types (`.fileURL` or `NSFilenamesPboardType`).
+    /// Plain-text strings containing URLs are strictly ignored so plain text is not misclassified.
+    static func currentFileURL() -> URL? {
+        let pasteboard = NSPasteboard.general
+        let types = pasteboard.types ?? []
+
+        let hasFileType = types.contains(.fileURL) || types.contains(NSPasteboard.PasteboardType("NSFilenamesPboardType"))
+        guard hasFileType else { return nil }
+
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           let url = urls.first,
+           url.isFileURL {
+            return url
+        }
+
+        return nil
     }
 
     /// Returns the current image on the system clipboard, or `nil`
@@ -68,11 +95,33 @@ struct ClipboardService {
               let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:])
-        else { return }
+        else {
+            Self.logger.error("Failed to load image from path: \(path)")
+            return
+        }
 
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setData(pngData, forType: .png)
         pasteboard.setData(tiffData, forType: .tiff)
+    }
+
+    /// Writes a file URL reference to the system clipboard.
+    /// Used when the user restores a historical file clip.
+    ///
+    /// Writes the file reference using `pasteboard.writeObjects([fileURL as NSURL])`
+    /// so Finder and other macOS apps recognize it as a copied file.
+    static func restoreFile(atPath path: String) {
+        print("[TRACE] ClipboardService: restoreFile() entered for path: \(path)")
+
+        guard FileManager.default.fileExists(atPath: path) else {
+            Self.logger.warning("Attempted to restore file that no longer exists at path: \(path)")
+            return
+        }
+
+        let fileURL = URL(fileURLWithPath: path)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([fileURL as NSURL])
     }
 }

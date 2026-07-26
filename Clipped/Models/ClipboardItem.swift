@@ -7,9 +7,10 @@ import Foundation
 enum ContentType: String {
     case text  = "text"
     case image = "image"
+    case file  = "file"
 }
 
-/// A single clipboard history entry — either copied text or an image.
+/// A single clipboard history entry — either copied text, an image, or a file reference.
 ///
 /// This is a plain value type — similar to a simple data class in Dart/Kotlin.
 ///
@@ -21,18 +22,23 @@ struct ClipboardItem: Identifiable, Hashable {
     /// The SQLite `AUTOINCREMENT` primary key.
     let id: Int64
 
-    /// Whether this entry represents copied text or a copied image.
+    /// Whether this entry represents copied text, an image, or a file.
     let contentType: ContentType
 
     /// The plain-text clipboard content.
     /// For image entries this is an empty string.
+    /// For file entries this holds the file's display name / path representation.
     let text: String
 
     /// The absolute path to the locally saved PNG file.
     /// Only non-nil for image entries.
     let imagePath: String?
 
-    /// When this text or image was copied (or first seen by Clipped).
+    /// The absolute file path on disk.
+    /// Only non-nil for file entries.
+    let filePath: String?
+
+    /// When this item was copied (or first seen by Clipped).
     /// Mutable so that the timestamp can be updated when the user
     /// restores a historical item (which moves it to the top).
     var copiedAt: Date

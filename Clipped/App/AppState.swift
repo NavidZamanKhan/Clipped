@@ -35,7 +35,18 @@ final class AppState: ObservableObject {
             return items
         }
         return items.filter { item in
-            item.contentType == .text && item.text.localizedCaseInsensitiveContains(trimmed)
+            switch item.contentType {
+            case .text:
+                return item.text.localizedCaseInsensitiveContains(trimmed)
+            case .file:
+                if let path = item.filePath {
+                    let fileName = URL(fileURLWithPath: path).lastPathComponent
+                    return fileName.localizedCaseInsensitiveContains(trimmed) || path.localizedCaseInsensitiveContains(trimmed)
+                }
+                return false
+            case .image:
+                return false
+            }
         }
     }
 

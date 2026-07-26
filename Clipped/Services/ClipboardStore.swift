@@ -27,6 +27,9 @@ class ClipboardStore {
     /// The maximum number of image clipboard items to retain.
     private let maxImageItems = 20
 
+    /// The maximum number of file clipboard items to retain.
+    private let maxFileItems = 50
+
     /// The open SQLite database handle. `OpaquePointer` is Swift's way of
     /// representing a C pointer whose underlying struct is hidden — like
     /// the `sqlite3 *` type in C.
@@ -111,7 +114,7 @@ class ClipboardStore {
     /// with identical timestamps are consistently ordered.
     func loadAll() -> [ClipboardItem] {
         let sql = """
-            SELECT id, text, copied_at, content_type, image_path
+            SELECT id, text, copied_at, content_type, image_path, file_path
             FROM clipboard_items
             ORDER BY copied_at DESC, id DESC;
             """
@@ -150,14 +153,19 @@ class ClipboardStore {
             let contentType = ContentType(rawValue: typeString) ?? .text
 
             // Read image_path (may be NULL for text entries).
-            let pathPointer = sqlite3_column_text(statement, 4)
-            let imagePath = pathPointer.map { String(cString: $0) }
+            let imagePathPointer = sqlite3_column_text(statement, 4)
+            let imagePath = imagePathPointer.map { String(cString: $0) }
+
+            // Read file_path (may be NULL for text/image entries).
+            let filePathPointer = sqlite3_column_text(statement, 5)
+            let filePath = filePathPointer.map { String(cString: $0) }
 
             items.append(ClipboardItem(
                 id: id,
                 contentType: contentType,
                 text: text,
                 imagePath: imagePath,
+                filePath: filePath,
                 copiedAt: copiedAt
             ))
         }
@@ -207,6 +215,7 @@ class ClipboardStore {
             contentType: .text,
             text: text,
             imagePath: nil,
+            filePath: nil,
             copiedAt: now
         )
     }
@@ -246,6 +255,46 @@ class ClipboardStore {
             contentType: .image,
             text: "",
             imagePath: path,
+            filePath: nil,
+            copiedAt: now
+        )
+    }
+
+    /// Inserts a new clipboard file entry and returns the created item.
+    func insertFile(path: String) -> ClipboardItem? {
+        let sql = """
+            INSERT INTO clipboard_items (text, copied_at, content_type, file_path)
+            VALUES (?, ?, 'file', ?);
+            """
+        var statement: OpaquePointer?
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            Self.logger.error("Failed to prepare insertFile statement")
+            return nil
+        }
+
+        defer { sqlite3_finalize(statement) }
+
+        let now = Date()
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        let fileName = URL(fileURLWithPath: path).lastPathComponent
+
+        sqlite3_bind_text(statement, 1, fileName, -1, transient)
+        sqlite3_bind_double(statement, 2, now.timeIntervalSince1970)
+        sqlite3_bind_text(statement, 3, path, -1, transient)
+
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            Self.logger.error("Failed to insert file item")
+            return nil
+        }
+
+        let id = sqlite3_last_insert_rowid(db)
+        return ClipboardItem(
+            id: id,
+            contentType: .file,
+            text: fileName,
+            imagePath: nil,
+            filePath: path,
             copiedAt: now
         )
     }
@@ -388,6 +437,34 @@ class ClipboardStore {
         return deleted
     }
 
+    /// Deletes the oldest file items so that at most `maxFileItems` remain.
+    func trimFiles() {
+        let sql = """
+            DELETE FROM clipboard_items
+            WHERE content_type = 'file'
+            AND id NOT IN (
+                SELECT id FROM clipboard_items
+                WHERE content_type = 'file'
+                ORDER BY copied_at DESC, id DESC
+                LIMIT ?
+            );
+            """
+        var statement: OpaquePointer?
+
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            Self.logger.error("Failed to prepare trimFiles statement")
+            return
+        }
+
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_int(statement, 1, Int32(maxFileItems))
+
+        if sqlite3_step(statement) != SQLITE_DONE {
+            Self.logger.error("Failed to trim file items")
+        }
+    }
+
     // MARK: - Private
 
     /// Creates the `clipboard_items` table if it doesn't already exist.
@@ -407,7 +484,7 @@ class ClipboardStore {
         }
     }
 
-    /// Adds `content_type` and `image_path` columns if they don't exist.
+    /// Adds `content_type`, `image_path`, and `file_path` columns if they don't exist.
     ///
     /// This is a non-destructive migration: existing text rows are
     /// untouched and automatically receive `content_type = 'text'`
@@ -436,6 +513,16 @@ class ClipboardStore {
                 """
             if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
                 Self.logger.error("Failed to add image_path column")
+            }
+        }
+
+        if !existingColumns.contains("file_path") {
+            let sql = """
+                ALTER TABLE clipboard_items
+                ADD COLUMN file_path TEXT;
+                """
+            if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+                Self.logger.error("Failed to add file_path column")
             }
         }
     }
