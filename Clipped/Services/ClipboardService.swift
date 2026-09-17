@@ -48,6 +48,12 @@ struct ClipboardService {
         return nil
     }
 
+    /// Returns the raw PNG data directly from the system clipboard if available,
+    /// avoiding redundant image decompression and re-compression cycles.
+    static func currentPNGData() -> Data? {
+        NSPasteboard.general.data(forType: .png)
+    }
+
     /// Returns the current image on the system clipboard, or `nil`
     /// if the clipboard doesn't contain an image.
     ///
@@ -87,15 +93,13 @@ struct ClipboardService {
     /// Writes an image (loaded from a file path) to the system clipboard.
     /// Used when the user restores a historical image clip.
     ///
-    /// The image is placed as both PNG and TIFF data so that the widest
-    /// range of receiving applications can paste it.
+    /// Reads the raw PNG data directly from disk to avoid running expensive
+    /// CPU software PNG re-compression on the main thread. Also provides
+    /// TIFF data for receiving applications that require TIFF.
     static func restoreImage(fromPath path: String) {
         print("[TRACE] ClipboardService: restoreImage() entered")
-        guard let image = NSImage(contentsOfFile: path),
-              let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:])
-        else {
+        let fileURL = URL(fileURLWithPath: path)
+        guard let pngData = try? Data(contentsOf: fileURL) else {
             Self.logger.error("Failed to load image from path: \(path)")
             return
         }
@@ -103,7 +107,12 @@ struct ClipboardService {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setData(pngData, forType: .png)
-        pasteboard.setData(tiffData, forType: .tiff)
+
+        // For apps that prefer TIFF (e.g. Photoshop, Office), extract tiffRepresentation
+        // without re-running PNG compression algorithms.
+        if let image = NSImage(data: pngData), let tiffData = image.tiffRepresentation {
+            pasteboard.setData(tiffData, forType: .tiff)
+        }
     }
 
     /// Writes a file URL reference to the system clipboard.

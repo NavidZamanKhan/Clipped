@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ImageIO
 
 /// Displays a thumbnail for a locally stored image file.
 ///
@@ -47,14 +48,28 @@ struct ThumbnailView: View {
         }
     }
 
-    /// Loads the image from disk on first appearance.
+    /// Loads a downsampled thumbnail from disk on first appearance using ImageIO.
     ///
-    /// `NSImage(contentsOfFile:)` reads and decodes the file.
-    /// The result is stored in `@State` so subsequent redraws
-    /// reuse the decoded image without touching the file system.
+    /// Rather than decoding full 4K/5K resolution screenshots into RAM (which consumes
+    /// 25-50 MB per image), `CGImageSourceCreateThumbnailAtIndex` decodes ONLY the
+    /// pixels needed for the thumbnail (capped at 200px max pixel size). This reduces
+    /// memory usage from ~25-50 MB down to ~150 KB per image (a 99% reduction).
     private func loadIfNeeded() {
         guard !didLoad else { return }
         didLoad = true
-        loadedImage = NSImage(contentsOfFile: path)
+
+        let url = URL(fileURLWithPath: path) as CFURL
+        guard let source = CGImageSourceCreateWithURL(url, nil) else { return }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 200
+        ]
+
+        if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+            loadedImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        }
     }
 }

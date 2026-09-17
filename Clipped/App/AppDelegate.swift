@@ -158,10 +158,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Saves a captured PNG, inserts its metadata, and trims overflow.
     /// If the database insert fails, the orphan file is cleaned up.
     private func handleNewImage(_ image: NSImage) {
-        guard let filePath = ImageStorage.saveImage(image) else { return }
+        let filePath: String?
+        if let rawPNG = ClipboardService.currentPNGData() {
+            filePath = ImageStorage.saveImageData(rawPNG)
+        } else {
+            filePath = ImageStorage.saveImage(image)
+        }
+        guard let savedPath = filePath else { return }
 
-        guard let newItem = store.insertImage(path: filePath) else {
-            ImageStorage.deleteImage(at: filePath)
+        guard let newItem = store.insertImage(path: savedPath) else {
+            ImageStorage.deleteImage(at: savedPath)
             return
         }
 

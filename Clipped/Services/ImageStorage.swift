@@ -42,6 +42,25 @@ struct ImageStorage {
         }
     }
 
+    /// Writes raw PNG data atomically to disk.
+    ///
+    /// Avoids redundant decoding and re-encoding when PNG data is already
+    /// available from the pasteboard.
+    static func saveImageData(_ data: Data) -> String? {
+        guard let imagesDir = imagesDirectoryURL() else { return nil }
+
+        let filename = UUID().uuidString + ".png"
+        let fileURL = imagesDir.appendingPathComponent(filename)
+
+        do {
+            try data.write(to: fileURL, options: .atomic)
+            return fileURL.path
+        } catch {
+            Self.logger.error("Failed to write PNG data file: \(error)")
+            return nil
+        }
+    }
+
     /// Converts an `NSImage` to PNG data and writes it atomically to disk.
     ///
     /// - Returns: The absolute file path on success, or `nil` on failure.
@@ -51,15 +70,21 @@ struct ImageStorage {
     static func saveImage(_ image: NSImage) -> String? {
         guard let imagesDir = imagesDirectoryURL() else { return nil }
 
-        // Get a bitmap representation from the image.
-        // `NSImage.tiffRepresentation` is the standard way to extract
-        // raw pixel data from any NSImage, regardless of source format.
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
-            Self.logger.error("Failed to convert image to PNG data")
-            return nil
+        var pngData: Data?
+        autoreleasepool {
+            // Get a bitmap representation from the image.
+            // `NSImage.tiffRepresentation` is the standard way to extract
+            // raw pixel data from any NSImage, regardless of source format.
+            guard let tiffData = image.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiffData),
+                  let data = bitmap.representation(using: .png, properties: [:]) else {
+                Self.logger.error("Failed to convert image to PNG data")
+                return
+            }
+            pngData = data
         }
+
+        guard let data = pngData else { return nil }
 
         let filename = UUID().uuidString + ".png"
         let fileURL = imagesDir.appendingPathComponent(filename)
@@ -67,7 +92,7 @@ struct ImageStorage {
         do {
             // `.atomic` writes to a temporary file first, then renames.
             // This prevents partial writes if the app crashes mid-save.
-            try pngData.write(to: fileURL, options: .atomic)
+            try data.write(to: fileURL, options: .atomic)
             return fileURL.path
         } catch {
             Self.logger.error("Failed to write PNG file: \(error)")

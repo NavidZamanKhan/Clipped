@@ -100,40 +100,42 @@ class ClipboardMonitor {
     /// Priority 2: Plain text.
     /// Priority 3: Image.
     private func checkForChanges() {
-        let pasteboard = NSPasteboard.general
-        let currentCount = pasteboard.changeCount
+        autoreleasepool {
+            let pasteboard = NSPasteboard.general
+            let currentCount = pasteboard.changeCount
 
-        // If the count hasn't changed, nothing was copied — skip.
-        guard currentCount != lastChangeCount else { return }
+            // If the count hasn't changed, nothing was copied — skip.
+            guard currentCount != lastChangeCount else { return }
 
-        // Update our snapshot so we don't process this change again.
-        lastChangeCount = currentCount
+            // Update our snapshot so we don't process this change again.
+            lastChangeCount = currentCount
 
-        // If this changeCount matches our own pasteboard write,
-        // consume it silently. This prevents Clipped's clipboard
-        // restoration from creating a duplicate history entry.
-        if let ignored = ignoredChangeCount, currentCount == ignored {
-            ignoredChangeCount = nil
-            Self.logger.debug("Skipped self-initiated clipboard change (count=\(currentCount))")
-            return
-        }
+            // If this changeCount matches our own pasteboard write,
+            // consume it silently. This prevents Clipped's clipboard
+            // restoration from creating a duplicate history entry.
+            if let ignored = ignoredChangeCount, currentCount == ignored {
+                ignoredChangeCount = nil
+                Self.logger.debug("Skipped self-initiated clipboard change (count=\(currentCount))")
+                return
+            }
 
-        // Priority 1: File URL (must be checked BEFORE plain text).
-        if let fileURL = ClipboardService.currentFileURL() {
-            onNewFile?(fileURL)
-            return
-        }
+            // Priority 1: File URL (must be checked BEFORE plain text).
+            if let fileURL = ClipboardService.currentFileURL() {
+                onNewFile?(fileURL)
+                return
+            }
 
-        // Priority 2: Plain text.
-        if let text = pasteboard.string(forType: .string), !text.isEmpty {
-            onNewText?(text)
-            return
-        }
+            // Priority 2: Plain text.
+            if let text = pasteboard.string(forType: .string), !text.isEmpty {
+                onNewText?(text)
+                return
+            }
 
-        // Priority 3: Image (PNG preferred, TIFF fallback).
-        if let image = ClipboardService.currentImage() {
-            onNewImage?(image)
-            return
+            // Priority 3: Image (PNG preferred, TIFF fallback).
+            if let image = ClipboardService.currentImage() {
+                onNewImage?(image)
+                return
+            }
         }
     }
 }
