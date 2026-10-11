@@ -114,9 +114,14 @@ class ClipboardStore {
     /// with identical timestamps are consistently ordered.
     func loadAll() -> [ClipboardItem] {
         let sql = """
-            SELECT id, text, copied_at, content_type, image_path, file_path
+            SELECT id, text, copied_at, content_type, image_path, file_path, is_pinned, pinned_at
             FROM clipboard_items
-            ORDER BY copied_at DESC, id DESC;
+            ORDER BY 
+                is_pinned DESC,
+                CASE WHEN is_pinned = 1 THEN COALESCE(pinned_at, copied_at) END ASC,
+                CASE WHEN is_pinned = 1 THEN id END ASC,
+                CASE WHEN is_pinned = 0 THEN copied_at END DESC,
+                CASE WHEN is_pinned = 0 THEN id END DESC;
             """
         var statement: OpaquePointer?
 
@@ -160,13 +165,20 @@ class ClipboardStore {
             let filePathPointer = sqlite3_column_text(statement, 5)
             let filePath = filePathPointer.map { String(cString: $0) }
 
+            // Read is_pinned and pinned_at.
+            let isPinned = sqlite3_column_int(statement, 6) != 0
+            let pinnedAtDouble = sqlite3_column_double(statement, 7)
+            let pinnedAt = (pinnedAtDouble > 0) ? Date(timeIntervalSince1970: pinnedAtDouble) : nil
+
             items.append(ClipboardItem(
                 id: id,
                 contentType: contentType,
                 text: text,
                 imagePath: imagePath,
                 filePath: filePath,
-                copiedAt: copiedAt
+                copiedAt: copiedAt,
+                isPinned: isPinned,
+                pinnedAt: pinnedAt
             ))
         }
 
@@ -332,18 +344,69 @@ class ClipboardStore {
         return now
     }
 
-    /// Deletes the oldest text items so that at most `maxTextItems` remain.
+    /// Toggles the pinned status of an item.
     ///
-    /// This is the text FIFO trim: when the 101st text item is added,
-    /// the oldest text entry is permanently removed from SQLite.
-    /// Image entries are not affected.
+    /// If pinning: sets `is_pinned = 1` and `pinned_at = now`.
+    /// If unpinning: sets `is_pinned = 0` and `pinned_at = NULL`.
+    /// Returns the new state on success, or `nil` on failure.
+    func togglePin(id: Int64) -> (isPinned: Bool, pinnedAt: Date?)? {
+        let checkSQL = "SELECT is_pinned FROM clipboard_items WHERE id = ?;"
+        var checkStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, checkSQL, -1, &checkStmt, nil) == SQLITE_OK else {
+            Self.logger.error("Failed to prepare checkPin statement")
+            return nil
+        }
+        defer { sqlite3_finalize(checkStmt) }
+        sqlite3_bind_int64(checkStmt, 1, id)
+
+        guard sqlite3_step(checkStmt) == SQLITE_ROW else {
+            Self.logger.error("Item id \(id) not found for togglePin")
+            return nil
+        }
+        let currentPinned = sqlite3_column_int(checkStmt, 0) != 0
+        let newPinned = !currentPinned
+        let now = Date()
+        let pinnedAt: Date? = newPinned ? now : nil
+
+        let updateSQL = """
+            UPDATE clipboard_items
+            SET is_pinned = ?, pinned_at = ?
+            WHERE id = ?;
+            """
+        var updateStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
+            Self.logger.error("Failed to prepare updatePin statement")
+            return nil
+        }
+        defer { sqlite3_finalize(updateStmt) }
+
+        sqlite3_bind_int(updateStmt, 1, newPinned ? 1 : 0)
+        if let date = pinnedAt {
+            sqlite3_bind_double(updateStmt, 2, date.timeIntervalSince1970)
+        } else {
+            sqlite3_bind_null(updateStmt, 2)
+        }
+        sqlite3_bind_int64(updateStmt, 3, id)
+
+        guard sqlite3_step(updateStmt) == SQLITE_DONE else {
+            Self.logger.error("Failed to update pin state for id \(id)")
+            return nil
+        }
+
+        return (isPinned: newPinned, pinnedAt: pinnedAt)
+    }
+
+    /// Deletes the oldest unpinned text items so that at most `maxTextItems` remain.
+    /// Pinned items are never deleted.
     func trimText() {
         let sql = """
             DELETE FROM clipboard_items
             WHERE content_type = 'text'
+            AND is_pinned = 0
             AND id NOT IN (
                 SELECT id FROM clipboard_items
                 WHERE content_type = 'text'
+                AND is_pinned = 0
                 ORDER BY copied_at DESC, id DESC
                 LIMIT ?
             );
@@ -364,20 +427,18 @@ class ClipboardStore {
         }
     }
 
-    /// Deletes the oldest image items so that at most `maxImageItems` remain.
-    ///
-    /// Returns an array of `(id, imagePath)` tuples for the deleted rows
-    /// so that the caller can:
-    /// 1. Remove those entries from the in-memory `items` array.
-    /// 2. Delete the corresponding PNG files from disk.
+    /// Deletes the oldest unpinned image items so that at most `maxImageItems` remain.
+    /// Pinned items are never deleted.
     func trimImages() -> [(id: Int64, path: String)] {
-        // First, find which image rows will be deleted.
+        // First, find which unpinned image rows will be deleted.
         let selectSQL = """
             SELECT id, image_path FROM clipboard_items
             WHERE content_type = 'image'
+            AND is_pinned = 0
             AND id NOT IN (
                 SELECT id FROM clipboard_items
                 WHERE content_type = 'image'
+                AND is_pinned = 0
                 ORDER BY copied_at DESC, id DESC
                 LIMIT ?
             );
@@ -411,9 +472,11 @@ class ClipboardStore {
         let deleteSQL = """
             DELETE FROM clipboard_items
             WHERE content_type = 'image'
+            AND is_pinned = 0
             AND id NOT IN (
                 SELECT id FROM clipboard_items
                 WHERE content_type = 'image'
+                AND is_pinned = 0
                 ORDER BY copied_at DESC, id DESC
                 LIMIT ?
             );
@@ -437,14 +500,17 @@ class ClipboardStore {
         return deleted
     }
 
-    /// Deletes the oldest file items so that at most `maxFileItems` remain.
+    /// Deletes the oldest unpinned file items so that at most `maxFileItems` remain.
+    /// Pinned items are never deleted.
     func trimFiles() {
         let sql = """
             DELETE FROM clipboard_items
             WHERE content_type = 'file'
+            AND is_pinned = 0
             AND id NOT IN (
                 SELECT id FROM clipboard_items
                 WHERE content_type = 'file'
+                AND is_pinned = 0
                 ORDER BY copied_at DESC, id DESC
                 LIMIT ?
             );
@@ -523,6 +589,26 @@ class ClipboardStore {
                 """
             if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
                 Self.logger.error("Failed to add file_path column")
+            }
+        }
+
+        if !existingColumns.contains("is_pinned") {
+            let sql = """
+                ALTER TABLE clipboard_items
+                ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0;
+                """
+            if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+                Self.logger.error("Failed to add is_pinned column")
+            }
+        }
+
+        if !existingColumns.contains("pinned_at") {
+            let sql = """
+                ALTER TABLE clipboard_items
+                ADD COLUMN pinned_at REAL;
+                """
+            if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+                Self.logger.error("Failed to add pinned_at column")
             }
         }
     }
