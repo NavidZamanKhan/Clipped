@@ -130,11 +130,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let currentURL = ClipboardService.currentFileURL() {
             handleNewFile(currentURL)
         } else if let currentText = ClipboardService.currentText(), !currentText.isEmpty {
-            let isDuplicate = appState.items
-                .first(where: { $0.contentType == .text })?.text == currentText
+            let mostRecent = appState.items.max(by: { $0.copiedAt < $1.copiedAt })
+            let isDuplicate = (mostRecent?.contentType == .text && mostRecent?.text == currentText)
             if !isDuplicate {
                 if let newItem = store.insert(text: currentText) {
                     appState.items.insert(newItem, at: 0)
+                    appState.sortItems()
                     trimTextIfNeeded()
                 }
             }
@@ -146,11 +147,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Inserts a newly observed clipboard text entry and trims overflow.
     private func handleNewClip(text: String) {
         // Skip consecutive duplicates (same string copied twice in a row).
-        if appState.items.first?.contentType == .text
-            && appState.items.first?.text == text { return }
+        let mostRecent = appState.items.max(by: { $0.copiedAt < $1.copiedAt })
+        if mostRecent?.contentType == .text && mostRecent?.text == text { return }
 
         if let newItem = store.insert(text: text) {
             appState.items.insert(newItem, at: 0)
+            appState.sortItems()
             trimTextIfNeeded()
         }
     }
@@ -172,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         appState.items.insert(newItem, at: 0)
+        appState.sortItems()
         trimImagesIfNeeded()
     }
 
@@ -181,35 +184,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Skip consecutive duplicates (same file path copied twice in a row).
         // Checks full file PATH (not filename alone) so different files with identical
         // names in different folders are NOT treated as duplicates.
-        if appState.items.first?.contentType == .file
-            && appState.items.first?.filePath == path { return }
+        let mostRecent = appState.items.max(by: { $0.copiedAt < $1.copiedAt })
+        if mostRecent?.contentType == .file && mostRecent?.filePath == path { return }
 
         if let newItem = store.insertFile(path: path) {
             appState.items.insert(newItem, at: 0)
+            appState.sortItems()
             trimFilesIfNeeded()
         }
     }
 
-    /// Drops oldest text items so that at most 100 remain.
+    /// Drops oldest unpinned text items so that at most 100 unpinned items remain.
     private func trimTextIfNeeded() {
-        let textCount = appState.items.filter { $0.contentType == .text }.count
-        guard textCount > 100 else { return }
+        let unpinnedTextCount = appState.items.filter { $0.contentType == .text && !$0.isPinned }.count
+        guard unpinnedTextCount > 100 else { return }
 
         store.trimText()
 
-        // Remove overflow text items from the in-memory list.
+        // Remove overflow unpinned text items from the in-memory list.
         var textSeen = 0
         appState.items.removeAll { item in
-            guard item.contentType == .text else { return false }
+            guard item.contentType == .text && !item.isPinned else { return false }
             textSeen += 1
             return textSeen > 100
         }
     }
 
-    /// Drops oldest image items and their PNG files so that at most 20 remain.
+    /// Drops oldest unpinned image items and their PNG files so that at most 20 unpinned items remain.
     private func trimImagesIfNeeded() {
-        let imageCount = appState.items.filter { $0.contentType == .image }.count
-        guard imageCount > 20 else { return }
+        let unpinnedImageCount = appState.items.filter { $0.contentType == .image && !$0.isPinned }.count
+        guard unpinnedImageCount > 20 else { return }
 
         let deleted = store.trimImages()
         let deletedIDs = Set(deleted.map { $0.id })
@@ -220,18 +224,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Drops oldest file items so that at most 50 remain.
+    /// Drops oldest unpinned file items so that at most 50 unpinned items remain.
     private func trimFilesIfNeeded() {
-        let fileCount = appState.items.filter { $0.contentType == .file }.count
-        guard fileCount > 50 else { return }
+        let unpinnedFileCount = appState.items.filter { $0.contentType == .file && !$0.isPinned }.count
+        guard unpinnedFileCount > 50 else { return }
 
         store.trimFiles()
 
         var fileSeen = 0
         appState.items.removeAll { item in
-            guard item.contentType == .file else { return false }
+            guard item.contentType == .file && !item.isPinned else { return false }
             fileSeen += 1
             return fileSeen > 50
+        }
+    }
+
+    // MARK: - Pin Management
+
+    /// Toggles the pinned state of an item by ID.
+    /// Updates SQLite, reflects the state in `appState.items`, and re-sorts.
+    func togglePin(id: Int64) {
+        guard let result = store.togglePin(id: id) else { return }
+        if let index = appState.items.firstIndex(where: { $0.id == id }) {
+            appState.items[index].isPinned = result.isPinned
+            appState.items[index].pinnedAt = result.pinnedAt
+            appState.sortItems()
+            appState.selectedItemID = id
+            Self.logger.info("Toggled pin for item id=\(id), isPinned=\(result.isPinned)")
         }
     }
 
@@ -289,6 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             var updatedItem = item
             updatedItem.copiedAt = newDate
             appState.items.insert(updatedItem, at: 0)
+            appState.sortItems()
             appState.selectedItemID = updatedItem.id
         }
 
