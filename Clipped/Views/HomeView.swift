@@ -69,20 +69,26 @@ struct HomeView: View {
                     ScrollViewReader { scrollViewProxy in
                         List(selection: $appState.selectedItemID) {
                             ForEach(appState.filteredItems) { item in
-                                ClipboardRow(item: item)
-                                    .tag(item.id)
-                                    .onDoubleClick {
+                                ClipboardRow(
+                                    item: item,
+                                    onDoubleClick: {
                                         appState.selectedItemID = item.id
                                         pasteSelectedItem()
+                                    },
+                                    onTogglePin: {
+                                        appState.selectedItemID = item.id
+                                        AppDelegate.shared?.togglePin(id: item.id)
                                     }
-                                    .padding(.vertical, 8)
-                                    .padding(.horizontal, 12)
-                                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
-                                    .listRowBackground(
-                                        SelectionHighlightView(isSelected: appState.selectedItemID == item.id)
-                                    )
-                                    .listRowSeparator(.visible)
-                                    .listRowSeparatorTint(Color.primary.opacity(0.1))
+                                )
+                                .tag(item.id)
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                                .listRowBackground(
+                                    SelectionHighlightView(isSelected: appState.selectedItemID == item.id)
+                                )
+                                .listRowSeparator(.visible)
+                                .listRowSeparatorTint(Color.primary.opacity(0.1))
                             }
                         }
                         .listStyle(.inset(alternatesRowBackgrounds: false))
@@ -93,9 +99,10 @@ struct HomeView: View {
                                 focusedField = .list
                                 AppDelegate.shared?.windowManager.makeListFirstResponder()
                             }
-                            if let firstId = appState.items.first?.id {
+                            let targetId = appState.scrollTargetItemID ?? appState.items.first?.id
+                            if let targetId {
                                 DispatchQueue.main.async {
-                                    scrollViewProxy.scrollTo(firstId, anchor: .top)
+                                    scrollViewProxy.scrollTo(targetId, anchor: .top)
                                 }
                             }
                         }
@@ -149,65 +156,97 @@ struct HomeView: View {
 ///
 /// Extracted to keep the ForEach body readable. Displays either a
 /// text snippet (up to 4 lines) or an image thumbnail, plus a
-/// relative timestamp.
+/// relative timestamp and an interactive pin button.
 private struct ClipboardRow: View {
 
     let item: ClipboardItem
+    let onDoubleClick: () -> Void
+    let onTogglePin: () -> Void
+
+    @State private var isPinHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            switch item.contentType {
-            case .text:
-                // `.lineLimit(4)` prevents a huge copied code block
-                // from blowing out the layout.
-                Text(item.text)
-                    .font(.body)
-                    .lineLimit(4)
-                    .truncationMode(.tail)
-                    .textSelection(.enabled)
+        HStack(alignment: .top, spacing: 10) {
+            // Content area: double-click to paste, single click updates selection
+            VStack(alignment: .leading, spacing: 8) {
+                switch item.contentType {
+                case .text:
+                    // `.lineLimit(4)` prevents a huge copied code block
+                    // from blowing out the layout.
+                    Text(item.text)
+                        .font(.body)
+                        .lineLimit(4)
+                        .truncationMode(.tail)
+                        .textSelection(.enabled)
 
-            case .image:
-                // Image entry — lazy thumbnail from file path.
-                if let path = item.imagePath {
-                    ThumbnailView(path: path)
-                } else {
-                    // Safety fallback if image_path is nil.
-                    Image(systemName: "photo")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
-
-            case .file:
-                // File entry — native system icon + filename + path.
-                if let path = item.filePath {
-                    HStack(spacing: 10) {
-                        Image(nsImage: NSWorkspace.shared.icon(forFile: path))
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 32, height: 32)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(URL(fileURLWithPath: path).lastPathComponent)
-                                .font(.body.weight(.medium))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Text(path)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.head)
-                        }
+                case .image:
+                    // Image entry — lazy thumbnail from file path.
+                    if let path = item.imagePath {
+                        ThumbnailView(path: path)
+                    } else {
+                        // Safety fallback if image_path is nil.
+                        Image(systemName: "photo")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
                     }
-                } else {
-                    Image(systemName: "doc")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
-            }
 
-            // Show a relative timestamp like "2 minutes ago".
-            Text(item.copiedAt, format: .relative(presentation: .named))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                case .file:
+                    // File entry — native system icon + filename + path.
+                    if let path = item.filePath {
+                        HStack(spacing: 10) {
+                            Image(nsImage: NSWorkspace.shared.icon(forFile: path))
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 32, height: 32)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(URL(fileURLWithPath: path).lastPathComponent)
+                                    .font(.body.weight(.medium))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Text(path)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.head)
+                            }
+                        }
+                    } else {
+                        Image(systemName: "doc")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                // Show a relative timestamp like "2 minutes ago".
+                Text(item.copiedAt, format: .relative(presentation: .named))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onDoubleClick(perform: onDoubleClick)
+
+            // Pin toggle button on the right side
+            Button(action: onTogglePin) {
+                Image(systemName: item.isPinned ? "pin.fill" : "pin")
+                    .font(.system(size: 13, weight: item.isPinned ? .semibold : .regular))
+                    .foregroundStyle(
+                        item.isPinned
+                            ? Color.accentColor
+                            : (isPinHovered ? Color.primary.opacity(0.85) : Color.secondary.opacity(0.45))
+                    )
+                    .rotationEffect(.degrees(item.isPinned ? 45 : 0))
+                    .animation(.spring(response: 0.25, dampingFraction: 0.7), value: item.isPinned)
+                    .frame(width: 26, height: 26)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(isPinHovered ? Color.primary.opacity(0.08) : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { isPinHovered = $0 }
+            .help(item.isPinned ? "Unpin item" : "Pin item to top")
         }
     }
 }
