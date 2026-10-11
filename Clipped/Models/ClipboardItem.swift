@@ -42,4 +42,30 @@ struct ClipboardItem: Identifiable, Hashable {
     /// Mutable so that the timestamp can be updated when the user
     /// restores a historical item (which moves it to the top).
     var copiedAt: Date
+
+    /// Whether this entry is pinned to stay at the top.
+    var isPinned: Bool
+
+    /// When this entry was pinned (used for dedicated pinned ordering).
+    var pinnedAt: Date?
+
+    init(
+        id: Int64,
+        contentType: ContentType,
+        text: String,
+        imagePath: String?,
+        filePath: String? = nil,
+        copiedAt: Date,
+        isPinned: Bool = false,
+        pinnedAt: Date? = nil
+    ) {
+        self.id = id
+        self.contentType = contentType
+        self.text = text
+        self.imagePath = imagePath
+        self.filePath = filePath
+        self.copiedAt = copiedAt
+        self.isPinned = isPinned
+        self.pinnedAt = pinnedAt
+    }
 }
